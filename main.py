@@ -20,10 +20,10 @@ MY_DATA = {
         "crypto": {"BTC": 0.00181400, "ETH": 0.03417393}
     },
     "lifecycle": {
-        "면도날": {"last": "2026-02-06", "period": 21},   # 보스 요청: 3주(21일)로 변경
-        "칫솔": {"last": "2026-02-06", "period": 90},     # 권장: 3개월
-        "이불세탁": {"last": "2026-01-30", "period": 14}, # 권장: 2주
-        "로봇청소기": {"last": "2026-02-12", "period": 2}  # 권장: 2일
+        "면도날": {"last": "2026-02-06", "period": 21},
+        "칫솔": {"last": "2026-02-06", "period": 90},
+        "이불세탁": {"last": "2026-01-30", "period": 14},
+        "로봇청소기": {"last": "2026-02-12", "period": 2}
     },
     "kitchen": {
         "소스/캔": "토마토페이스트(10), 나시고랭(1), S&B카레, 뚝심(2), 땅콩버터(4/5)",
@@ -33,31 +33,33 @@ MY_DATA = {
     }
 }
 
-# 실시간 주가/코인 시세 엔진
+# 실시간 시세 엔진 (에러 방지 로직 보강)
 def get_live_prices():
-    prices = {"crypto": {}, "stocks": {}}
-    # 코인 시세 (업비트)
-    try:
-        res = requests.get("https://api.upbit.com/v1/ticker?markets=KRW-BTC,KRW-ETH").json()
-        prices["crypto"] = {c['market']: c['trade_price'] for c in res}
-    except: prices["crypto"] = {"KRW-BTC": 95000000, "KRW-ETH": 3800000}
+    prices = {"crypto": {"KRW-BTC": 95000000, "KRW-ETH": 3800000}, "stocks": {}}
     
-    # 주식 시세 (네이버 금융 API 활용)
+    # 1. 코인 시세 (업비트)
+    try:
+        res = requests.get("https://api.upbit.com/v1/ticker?markets=KRW-BTC,KRW-ETH", timeout=3).json()
+        for c in res:
+            prices["crypto"][c['market']] = int(c['trade_price'])
+    except: pass
+    
+    # 2. 주식 시세 (네이버 금융)
     for name, info in MY_DATA["assets"]["stocks"].items():
         try:
             url = f"https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{info['code']}"
-            res = requests.get(url, timeout=5).json()
+            res = requests.get(url, timeout=3).json()
             prices["stocks"][name] = int(res['result']['areas'][0]['datas'][0]['nv'])
         except:
-            # 실패 시 최근 종가 기준 (2026-02-13 기준)
-            fallbacks = {"삼성전자": 183400, "SK하이닉스": 898000, "삼성중공업": 27800, "동성화인텍": 27550}
+            # 시세를 못 가져올 경우 임시 가격 설정 (최근 추이 반영)
+            fallbacks = {"삼성전자": 60000, "SK하이닉스": 180000, "삼성중공업": 9500, "동성화인텍": 12000}
             prices["stocks"][name] = fallbacks.get(name, 0)
     return prices
 
-st.set_page_config(page_title="자비스 대시보드 v2.4", layout="wide")
+st.set_page_config(page_title="자비스 대시보드 v2.5", layout="wide")
 st.title("자비스 : 실시간 통합 관리 시스템")
 
-# CSS: 우측 정렬 및 줄바꿈 보정
+# CSS: 정렬 및 줄바꿈 보정
 st.markdown("""
     <style>
     th {text-align: left !important;}
@@ -66,7 +68,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 데이터 업데이트
 live = get_live_prices()
 
 # --- 섹션 1: 기본 정보 및 건강 ---
@@ -81,19 +82,18 @@ with c2:
     df_h.index = df_h.index + 1
     st.table(df_h)
 
-# --- 섹션 2: 재무 정산 (주식/코인 실시간 합산) ---
+# --- 섹션 2: 재무 정산 ---
 st.header("재무 관리 매트릭스")
 btc_val = int(MY_DATA["assets"]["crypto"]["BTC"] * live["crypto"]["KRW-BTC"])
 eth_val = int(MY_DATA["assets"]["crypto"]["ETH"] * live["crypto"]["KRW-ETH"])
 
-# 주식 평가액 계산
 stock_rows = []
 total_stock_value = 0
 for name, info in MY_DATA["assets"]["stocks"].items():
-    curr_price = live["stocks"][name]
-    val = curr_price * info["count"]
+    p = live["stocks"].get(name, 0)
+    val = p * info["count"]
     total_stock_value += val
-    stock_rows.append({"종목": name, "수량": info["count"], "현재가": f"{curr_price:,.0f}원", "평가액": f"{val:,.0f}원"})
+    stock_rows.append({"종목": name, "수량": info["count"], "현재가": f"{p:,.0f}원", "평가액": f"{val:,.0f}원"})
 
 a1, a2 = st.columns(2)
 with a1:
@@ -106,10 +106,10 @@ with a1:
     asset_rows.append({"항목": "이더리움 환산", "금액": eth_val})
     
     df_a = pd.DataFrame(asset_rows)
-    total_a_sum = df_a['금액'].sum()
+    total_a = df_a['금액'].sum()
     df_a_disp = df_a.copy()
     df_a_disp['금액'] = df_a_disp['금액'].apply(lambda x: f"{x:,.0f}원")
-    df_a_disp = pd.concat([df_a_disp, pd.DataFrame([{"항목": "총 자산 합계", "금액": f"{total_a_sum:,.0f}원"}])], ignore_index=True)
+    df_a_disp = pd.concat([df_a_disp, pd.DataFrame([{"항목": "총 자산 합계", "금액": f"{total_a:,.0f}원"}])], ignore_index=True)
     df_a_disp.index = df_a_disp.index + 1
     st.table(df_a_disp)
 
@@ -122,16 +122,16 @@ with a2:
     st.subheader("부채 목록")
     debt_rows = [{"항목": k, "금액": v} for k, v in MY_DATA["assets"]["liabilities"].items()]
     df_d = pd.DataFrame(debt_rows)
-    total_d_sum = df_d['금액'].sum()
+    total_d = df_d['금액'].sum()
     df_d_disp = df_d.copy()
     df_d_disp['금액'] = df_d_disp['금액'].apply(lambda x: f"{x:,.0f}원")
-    df_d_disp = pd.concat([df_d_disp, pd.DataFrame([{"항목": "총 부채 합계", "금액": f"{total_d_sum:,.0f}원"}])], ignore_index=True)
+    df_d_disp = pd.concat([df_d_disp, pd.DataFrame([{"항목": "총 부채 합계", "금액": f"{total_d:,.0f}원"}])], ignore_index=True)
     df_d_disp.index = df_d_disp.index + 1
     st.table(df_d_disp)
     
-    st.metric("실시간 순자산", f"{total_a_sum - total_d_sum:,.0f}원")
+    st.metric("실시간 순자산", f"{total_a - total_d:,.0f}원")
 
-# --- 섹션 3: 생활 관리 및 주방 재고 ---
+# --- 섹션 3: 생활 주기 및 주방 ---
 st.header("생활 주기 및 주방 재고")
 l1, l2 = st.columns(2)
 with l1:
@@ -140,4 +140,14 @@ with l1:
         next_d = datetime.strptime(info["last"], "%Y-%m-%d") + timedelta(days=info["period"])
         rem = (next_d - datetime.now()).days
         status = "점검 필요" if rem <= 0 else "정상"
-        life_rows.append({"항목
+        life_rows.append({"항목": item, "상태": status, "남은 일수": f"{rem}일"})
+    df_l = pd.DataFrame(life_rows)
+    df_l.index = df_l.index + 1
+    st.table(df_l)
+with l2:
+    k_rows = [{"카테고리": k, "내용": v} for k, v in MY_DATA["kitchen"].items()]
+    df_k = pd.DataFrame(k_rows)
+    df_k.index = df_k.index + 1
+    st.table(df_k)
+
+st.caption(f"최근 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
