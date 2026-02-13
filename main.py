@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta
 
-# 1. 고정 마스터 데이터 (요약 절대 금지)
+# 1. 고정 마스터 데이터 (보스의 모든 지표 집대성 - 요약 절대 금지)
 FIXED_DATA = {
     "profile": {"항목": ["나이", "거주", "상태", "결혼예정일"], "내용": ["32세", "평택 원평동", "공무원 발령 대기 중", "2026-05-30"]},
     "health": {"항목": ["현재 체중", "목표 체중", "주요 관리", "식단 금기"], "내용": ["125.0kg", "90.0kg", "고지혈증/ADHD", "생굴/멍게"]},
@@ -28,15 +28,28 @@ FIXED_DATA = {
 }
 
 EXPENSE_CATS = ["식비(집밥)", "식비(배달)", "식비(외식/편의점)", "담배", "생활용품", "주거/통신/이자", "보험/청약", "주식/적금", "주유/교통", "건강/의료", "기타"]
+INCOME_CATS = ["급여", "금융", "기타"]
 PAY_METHODS = ["하나카드", "우리카드", "국민카드", "현대카드", "지역화폐", "현금"]
 TARGET = {"칼로리": 2000, "단백질": 150, "지방": 65, "탄수화물": 300, "식이섬유": 25, "수분": 2000, "나트륨": 2000, "콜레스테롤": 300, "당류": 50}
 
 # 세션 데이터 초기화
 if 'cash' not in st.session_state: st.session_state.cash = 492918
-if 'card_debt' not in st.session_state: st.session_state.card_debt = 0 # 실시간 카드값 추적용
+if 'card_debt' not in st.session_state: st.session_state.card_debt = 0
 if 'consumed' not in st.session_state: st.session_state.consumed = {k: 0 for k in TARGET.keys()}
-if 'expenses' not in st.session_state: st.session_state.expenses = {cat: 0 for cat in EXPENSE_CATS}
 if 'master_log' not in st.session_state: st.session_state.master_log = []
+
+# 정밀 영양 분석 함수 (v6.5 핵심 추가)
+def analyze_meal(meal_name):
+    meal_db = {
+        "비빔국수": {"칼로리": 530, "단백질": 12, "지방": 10, "탄수화물": 98, "식이섬유": 4, "나트륨": 1500, "콜레스테롤": 0, "당류": 18, "수분": 0},
+        "쿼터파운더치즈세트": {"칼로리": 1120, "단백질": 50, "지방": 55, "탄수화물": 110, "식이섬유": 5, "나트륨": 1200, "콜레스테롤": 150, "당류": 12, "수분": 400},
+        "쿼터파운더치즈": {"칼로리": 517, "단백질": 30, "지방": 28, "탄수화물": 38, "식이섬유": 2, "나트륨": 1100, "콜레스테롤": 95, "당류": 10, "수분": 0},
+        "물": {"칼로리": 0, "단백질": 0, "지방": 0, "탄수화물": 0, "식이섬유": 0, "나트륨": 0, "콜레스테롤": 0, "당류": 0, "수분": 500},
+        "커피": {"칼로리": 10, "단백질": 0, "지방": 0, "탄수화물": 2, "식이섬유": 0, "나트륨": 5, "콜레스테롤": 0, "당류": 0, "수분": 350}
+    }
+    # 사전에 없으면 일반식 기본값(600kcal) 적용
+    default = {"칼로리": 600, "단백질": 25, "지방": 20, "탄수화물": 70, "식이섬유": 3, "나트륨": 800, "콜레스테롤": 50, "당류": 10, "수분": 0}
+    return meal_db.get(meal_name, default)
 
 def get_live_prices():
     prices = {"crypto": {"KRW-BTC": 95000000, "KRW-ETH": 3800000}, "stocks": {}}
@@ -52,9 +65,8 @@ def get_live_prices():
         except: prices["stocks"][name] = 0
     return prices
 
-st.set_page_config(page_title="자비스 v6.3", layout="wide")
+st.set_page_config(page_title="자비스 v6.5", layout="wide")
 
-# CSS: 50px 특대 숫자 및 우측 정렬
 st.markdown("""<style>
     * { font-family: 'Arial Black', sans-serif !important; }
     [data-testid="stTable"] td:nth-child(1) { font-size: 50px !important; color: #FF4B4B !important; font-weight: 900; text-align: center; }
@@ -73,31 +85,41 @@ live = get_live_prices()
 with st.sidebar:
     st.header("실시간 기록")
     with st.form("total_input"):
-        st.subheader("1. 지출 기록")
-        exp_val = st.number_input("지출 금액", min_value=0, step=100)
-        pay_method = st.selectbox("지출 수단", PAY_METHODS)
-        exp_cat = st.selectbox("지출 카테고리", EXPENSE_CATS)
-        st.divider()
-        st.subheader("2. 식단 기록")
-        meal_in = st.text_input("음식명/음료")
+        input_time = st.time_input("발생 시간", datetime.now())
+        tran_type = st.radio("구금", ["지출", "수입"])
+        amount = st.number_input("금액", min_value=0, step=100)
         
+        if tran_type == "지출":
+            pay_method = st.selectbox("지출 수단", PAY_METHODS)
+            cat = st.selectbox("카테고리", EXPENSE_CATS)
+            meal_in = st.text_input("음식명/음료")
+        else:
+            pay_method = "현금"
+            cat = st.selectbox("카테고리", INCOME_CATS)
+            meal_in = ""
+            
         if st.form_submit_button("시스템 반영"):
-            entry = {"날짜": datetime.now().strftime('%Y-%m-%d'), "시간": datetime.now().strftime('%H:%M'), 
-                     "항목": meal_in or exp_cat, "금액": exp_val, "지출수단": pay_method,
-                     "칼로리": 0, "단백질": 0, "지방": 0, "탄수화물": 0, 
-                     "식이섬유": 0, "수분": 0, "나트륨": 0, "콜레스테롤": 0, "당류": 0}
+            entry = {"날짜": datetime.now().strftime('%Y-%m-%d'), "시간": input_time.strftime('%H:%M'), 
+                     "구분": tran_type, "항목": meal_in or cat, "금액": amount, "지출수단": pay_method}
             
-            if "물" in meal_in: entry["수분"] = 500
-            elif "쿼파치" in meal_in: entry.update({"칼로리": 1120, "단백질": 50, "지방": 55, "탄수화물": 110, "식이섬유": 5, "나트륨": 1200, "콜레스테롤": 150, "당류": 12})
-            elif meal_in: entry.update({"칼로리": 600, "단백질": 25, "지방": 20, "탄수화물": 70, "식이섬유": 3, "나트륨": 800, "당류": 5})
+            # 영양 분석 및 반영
+            if tran_type == "지출" and (meal_in or "식비" in cat):
+                nutri = analyze_meal(meal_in or "일반식")
+                entry.update(nutri)
+                for k in TARGET.keys(): st.session_state.consumed[k] += entry.get(k, 0)
+            else:
+                # 영양소 0점 처리
+                entry.update({k: 0 for k in TARGET.keys()})
+
+            # 자산 반영
+            if tran_type == "수입":
+                st.session_state.cash += amount
+            else:
+                if "카드" in pay_method: st.session_state.card_debt += amount
+                else: st.session_state.cash -= amount
             
-            # 카드결제 시 카드값 누적, 현금/지역화폐 시 가용현금 차감
-            if "카드" in pay_method: st.session_state.card_debt += exp_val
-            else: st.session_state.cash -= exp_val
-            
-            st.session_state.expenses[exp_cat] += exp_val
-            for k in TARGET.keys(): st.session_state.consumed[k] += entry.get(k, 0)
-            st.session_state.master_log.insert(0, entry) # 최신 로그가 위로 오게
+            st.session_state.master_log.append(entry)
+            st.session_state.master_log = sorted(st.session_state.master_log, key=lambda x: x['시간'])
             st.rerun()
 
     if st.session_state.master_log:
@@ -106,7 +128,7 @@ with st.sidebar:
                            pd.DataFrame(st.session_state.master_log).to_csv(index=False).encode('utf-8-sig'), 
                            f"Jarvis_Master_{datetime.now().strftime('%Y%m%d')}.csv")
 
-# --- 메인 섹션 (1~7 무삭제 상세) ---
+# --- 메인 섹션 ---
 
 st.header("1. 기본 정보")
 st.table(pd.DataFrame(FIXED_DATA["profile"]).assign(순번=range(1, 5)).set_index('순번'))
@@ -124,22 +146,16 @@ for k in ["단백질", "지방", "탄수화물", "식이섬유", "수분", "나�
 st.table(pd.DataFrame(nut_rows).assign(순번=range(1, len(nut_rows)+1)).set_index('순번'))
 
 st.header("3. 실시간 자산 상세")
-# 가용현금과 청년도약계좌 사이에 현재 카드값(부채성격) 기입
 assets_display = [
     {"항목": "가용 현금", "금액": st.session_state.cash},
-    {"항목": "⚠️ 현재 카드값(결제예정)", "금액": -st.session_state.card_debt} # 부채이므로 마이너스 표시
+    {"항목": "⚠️ 현재 카드값(결제예정)", "금액": -st.session_state.card_debt}
 ]
-for k, v in FIXED_DATA["assets"]["savings"].items():
-    assets_display.append({"항목": k, "금액": v})
-
-# 주식/코인 상세 (무삭제)
+for k, v in FIXED_DATA["assets"]["savings"].items(): assets_display.append({"항목": k, "금액": v})
 s_cnt = FIXED_DATA["assets"]["stocks_count"]
-for n in FIXED_DATA["assets"]["stocks"]:
-    assets_display.append({"항목": f"주식({n})", "금액": live["stocks"].get(n, 0) * s_cnt[n]})
+for n in FIXED_DATA["assets"]["stocks"]: assets_display.append({"항목": f"주식({n})", "금액": live["stocks"].get(n, 0) * s_cnt[n]})
 btc_val = int(FIXED_DATA["assets"]["crypto"]["BTC"] * live["crypto"]["KRW-BTC"])
 eth_val = int(FIXED_DATA["assets"]["crypto"]["ETH"] * live["crypto"]["KRW-ETH"])
 assets_display.extend([{"항목": "코인(BTC)", "금액": btc_val}, {"항목": "코인(ETH)", "금액": eth_val}])
-
 st.table(pd.DataFrame(assets_display).assign(금액=lambda x: x['금액'].apply(lambda y: f"{y:,.0f}원"), 순번=range(1, len(assets_display)+1)).set_index('순번'))
 
 st.header("4. 실시간 부채 상세")
@@ -160,11 +176,10 @@ st.table(pd.DataFrame(l_rows).assign(순번=range(1, 4)).set_index('순번'))
 st.header("6. 주방 재고 현황")
 st.table(pd.DataFrame([{"카테고리": k, "내용": v} for k, v in FIXED_DATA["kitchen"].items()]).assign(순번=range(1, 5)).set_index('순번'))
 
-st.header("7. 오늘 상세 로그 (식단 및 지출)")
+st.header("7. 오늘 상세 로그 (시간순)")
 if st.session_state.master_log:
     log_df = pd.DataFrame(st.session_state.master_log)
-    # 가독성을 위해 주요 영양소와 금액만 노출
-    display_log = log_df[["시간", "항목", "금액", "지출수단", "칼로리", "나트륨", "콜레스테롤"]]
+    display_log = log_df[["시간", "구분", "항목", "금액", "지출수단", "칼로리", "나트륨", "콜레스테롤"]]
     st.table(display_log.assign(순번=range(1, len(display_log)+1)).set_index('순번'))
 else:
     st.info("오늘 기록된 내역이 없습니다.")
