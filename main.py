@@ -32,7 +32,6 @@ INCOME_CATS = ["급여", "금융", "기타"]
 PAY_METHODS = ["하나카드", "우리카드", "국민카드", "현대카드", "지역화폐", "현금"]
 TARGET = {"칼로리": 2000, "탄수화물": 300, "단백질": 150, "지방": 65, "나트륨": 2000, "콜레스테롤": 300, "당류": 50, "수분": 2000}
 
-# 세션 데이터 초기화
 if 'cash' not in st.session_state: st.session_state.cash = 492918
 if 'card_debt' not in st.session_state: st.session_state.card_debt = 0
 if 'consumed' not in st.session_state: st.session_state.consumed = {k: 0 for k in TARGET.keys()}
@@ -52,9 +51,8 @@ def get_live_prices():
         except: prices["stocks"][name] = 0
     return prices
 
-st.set_page_config(page_title="자비스 v7.0", layout="wide")
+st.set_page_config(page_title="자비스 v7.1", layout="wide")
 
-# CSS: 50px 특대 숫자 및 우측 정렬 유지
 st.markdown("""<style>
     * { font-family: 'Arial Black', sans-serif !important; }
     [data-testid="stTable"] td:nth-child(1) { font-size: 50px !important; color: #FF4B4B !important; font-weight: 900; text-align: center; }
@@ -68,7 +66,7 @@ st.markdown('<p style="font-size:22px; color:#1E90FF; font-weight:bold;">📍 �
 
 live = get_live_prices()
 
-# --- 사이드바: FatSecret 완전체 입력 ---
+# --- 사이드바: 입력 ---
 with st.sidebar:
     st.header("📋 데이터 기록")
     with st.form("master_input"):
@@ -76,10 +74,11 @@ with st.sidebar:
         tran_type = st.radio("구분", ["지출", "수입"])
         amount = st.number_input("금액", min_value=0, step=100)
         pay_method = st.selectbox("결제 수단", PAY_METHODS)
-        item_name = st.text_input("항목명 (음식/수입원)")
+        # 보스, 지시하신 대로 가이드 텍스트를 제거했습니다.
+        item_name = st.text_input("입력") 
         
         st.divider()
-        st.subheader("🥗 FatSecret 정밀 영양")
+        st.subheader("🥗 FatSecret 수치")
         c_cal = st.number_input("칼로리 (kcal)", min_value=0)
         c_car = st.number_input("탄수화물 (g)", min_value=0)
         c_pro = st.number_input("단백질 (g)", min_value=0)
@@ -106,19 +105,23 @@ with st.sidebar:
             st.session_state.master_log = sorted(st.session_state.master_log, key=lambda x: x['시간'])
             st.rerun()
 
-# --- 1~6 무삭제 상세 섹션 ---
+# --- 메인 섹션 ---
+
 st.header("1. 기본 정보")
 st.table(pd.DataFrame(FIXED_DATA["profile"]).assign(순번=range(1, 5)).set_index('순번'))
 
 st.header("2. 건강 및 정밀 영양")
-col1, col2, col3 = st.columns(3)
-col1.metric("오늘 칼로리", f"{st.session_state.consumed['칼로리']} kcal")
-col2.metric("나트륨 현황", f"{st.session_state.consumed['나트륨']} mg")
-col3.metric("콜레스테롤", f"{st.session_state.consumed['콜레스테롤']} mg")
+# 나트륨, 콜레스테롤 메트릭 제거 및 에너지/수분 강조
+col_n1, col_n2 = st.columns(2)
+col_n1.metric("오늘 칼로리", f"{st.session_state.consumed['칼로리']} / {TARGET['칼로리']} kcal")
+col_n2.metric("수분 섭취량", f"{st.session_state.consumed['수분']} / {TARGET['수분']} ml")
 
-nut_df = pd.DataFrame([{"항목": k, "현재 섭취": f"{v}{'mg' if k in ['나트륨', '콜레스테롤'] else 'g'}"} 
-                       for k, v in st.session_state.consumed.items() if k != '칼로리'])
-st.table(nut_df.assign(순번=range(1, len(nut_df)+1)).set_index('순번'))
+nut_rows = []
+for k in ["단백질", "지방", "탄수화물", "식이섬유", "수분", "나트륨", "콜레스테롤", "당류"]:
+    v = st.session_state.consumed[k]
+    unit = "mg" if k in ["나트륨", "콜레스테롤"] else ("ml" if k == "수분" else "g")
+    nut_rows.append({"항목": k, "현재 섭취": f"{v}{unit}", "권장 기준": f"{TARGET[k]}{unit}"})
+st.table(pd.DataFrame(nut_rows).assign(순번=range(1, len(nut_rows)+1)).set_index('순번'))
 
 st.header("3. 실시간 자산 상세")
 assets = [{"항목": "가용 현금", "금액": st.session_state.cash}, {"항목": "⚠️ 현재 카드값", "금액": -st.session_state.card_debt}]
@@ -141,7 +144,7 @@ st.header("5. 생활 주기 관리")
 l_rows = []
 for item, info in FIXED_DATA["lifecycle"].items():
     rem = (datetime.strptime(info["last"], "%Y-%m-%d") + timedelta(days=info["period"]) - datetime.now()).days
-    l_rows.append({"항목": item, "마지막 수행": info["last"], "D-Day": f"{rem}일"})
+    l_rows.append({"항목": item, "최근 수행": info["last"], "D-Day": f"{rem}일"})
 st.table(pd.DataFrame(l_rows).assign(순번=range(1, 4)).set_index('순번'))
 
 st.header("6. 주방 재고 현황")
