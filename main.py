@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta
 
-# 1. 보스의 정밀 데이터베이스
+# 1. 보스의 통합 데이터베이스
 MY_DATA = {
     "profile": {"항목": ["나이", "거주", "상태", "결혼예정일"], "내용": ["32세", "평택 원평동", "공무원 발령 대기 중", "2026-05-30"]},
     "health": {"항목": ["현재 체중", "목표 체중", "주요 관리", "식단 금기"], "내용": ["125.0kg", "90.0kg", "고지혈증/ADHD", "생굴/멍게"]},
@@ -33,58 +33,78 @@ def get_live_prices():
         return {c['market']: c['trade_price'] for c in res}
     except: return {"KRW-BTC": 95000000, "KRW-ETH": 3800000}
 
-st.set_page_config(page_title="JARVIS v1.9", layout="wide")
-st.title(" JARVIS 한정원 일간리포트")
+st.set_page_config(page_title="JARVIS v2.0", layout="wide")
+st.title("JARVIS : 실시간 자산 총계 및 정밀 대시보드")
+
+# 금액 우측 정렬을 위한 CSS
+st.markdown("""
+    <style>
+    .stTable td:nth-child(2) {text-align: right !important;}
+    .stTable td:nth-child(3) {text-align: right !important;}
+    </style>
+    """, unsafe_allow_html=True)
 
 # --- [SECTION 1] 프로필 및 건강 ---
-st.header("🏁 기본 프로필 및 건강 지표")
+st.header("🏁 기본 프로필 및 건강")
 c_p1, c_p2 = st.columns(2)
 with c_p1:
-    st.table(pd.DataFrame(MY_DATA["profile"]))
+    df_p = pd.DataFrame(MY_DATA["profile"])
+    df_p.index = df_p.index + 1
+    st.table(df_p)
 with c_p2:
-    st.table(pd.DataFrame(MY_DATA["health"]))
+    df_h = pd.DataFrame(MY_DATA["health"])
+    df_h.index = df_h.index + 1
+    st.table(df_h)
 
 # --- [SECTION 2] 재무 매트릭스 ---
-st.header("💰 자산 및 부채 정밀 표")
+st.header("💰 자산 및 부채 정밀 정산")
 prices = get_live_prices()
-btc_v = MY_DATA["assets"]["crypto"]["BTC"] * prices["KRW-BTC"]
-eth_v = MY_DATA["assets"]["crypto"]["ETH"] * prices["KRW-ETH"]
-total_a = MY_DATA["assets"]["cash"] + sum(MY_DATA["assets"]["savings"].values()) + btc_v + eth_v
-total_d = sum(MY_DATA["assets"]["liabilities"].values())
+btc_v = int(MY_DATA["assets"]["crypto"]["BTC"] * prices["KRW-BTC"])
+eth_v = int(MY_DATA["assets"]["crypto"]["ETH"] * prices["KRW-ETH"])
 
-st.subheader(f"💵 실시간 순자산: {total_a - total_d:,.0f}원")
 a1, a2 = st.columns(2)
 with a1:
-    st.write("🏦 **자산 리스트**")
-    asset_data = [{"항목": "보유 현금", "금액": f"{MY_DATA['assets']['cash']:,.0f}원"}]
+    st.subheader("🏦 자산 리스트")
+    asset_rows = [{"항목": "보유 현금", "금액": MY_DATA['assets']['cash']}]
     for k, v in MY_DATA["assets"]["savings"].items():
-        asset_data.append({"항목": k, "금액": f"{v:,.0f}원"})
-    asset_data.append({"항목": "비트코인(BTC) 환산", "금액": f"{btc_v:,.0f}원"})
-    asset_data.append({"항목": "이더리움(ETH) 환산", "금액": f"{eth_v:,.0f}원"})
-    st.table(pd.DataFrame(asset_data))
+        asset_rows.append({"항목": k, "금액": v})
+    asset_rows.append({"항목": "비트코인(BTC) 환산", "금액": btc_v})
+    asset_rows.append({"항목": "이더리움(ETH) 환산", "금액": eth_v})
     
-    st.write("📈 **주식 포트폴리오**")
-    stock_df = pd.DataFrame(MY_DATA["assets"]["stocks"].items(), columns=['종목', '수량'])
-    stock_df.index = stock_df.index + 1
-    st.table(stock_df)
+    df_a = pd.DataFrame(asset_rows)
+    total_a = df_a['금액'].sum()
+    # 총계 행 추가
+    df_a = pd.concat([df_a, pd.DataFrame([{"항목": "✨ 총 자산 합계", "금액": total_a}])], ignore_index=True)
+    df_a['금액'] = df_a['금액'].apply(lambda x: f"{x:,.0f}원")
+    df_a.index = df_a.index + 1
+    st.table(df_a)
+    
+    st.subheader("📈 주식 포트폴리오")
+    df_s = pd.DataFrame(MY_DATA["assets"]["stocks"].items(), columns=['종목', '수량'])
+    total_s = df_s['수량'].sum()
+    df_s = pd.concat([df_s, pd.DataFrame([{"종목": "✨ 총 보유 주식수", "수량": total_s}])], ignore_index=True)
+    df_s.index = df_s.index + 1
+    st.table(df_s)
 
 with a2:
-    st.write("💸 **부채 리스트**")
-    debt_data = [{"항목": k, "금액": f"{v:,.0f}원"} for k, v in MY_DATA["assets"]["liabilities"].items()]
-    st.table(pd.DataFrame(debt_data))
+    st.subheader("💸 부채 리스트")
+    debt_rows = [{"항목": k, "금액": v} for k, v in MY_DATA["assets"]["liabilities"].items()]
+    df_d = pd.DataFrame(debt_rows)
+    total_d = df_d['금액'].sum()
+    # 총계 행 추가
+    df_d = pd.concat([df_d, pd.DataFrame([{"항목": "✨ 총 부채 합계", "금액": total_d}])], ignore_index=True)
+    df_d['금액'] = df_d['금액'].apply(lambda x: f"{x:,.0f}원")
+    df_d.index = df_d.index + 1
+    st.table(df_d)
+    
+    st.metric("💵 최종 순자산 (자산-부채)", f"{total_a - total_d:,.0f}원")
 
-# --- [SECTION 3] 라이프 사이클 & 주방 ---
-st.header("🔄 라이프 사이클 및 📦 주방 재고")
+# --- [SECTION 3] 라이프 사이클 및 주방 ---
+st.header("🔄 관리 주기 및 📦 주방")
 l1, l2 = st.columns(2)
 with l1:
     life_rows = []
     for item, info in MY_DATA["lifecycle"].items():
         next_d = datetime.strptime(info["last"], "%Y-%m-%d") + timedelta(days=info["period"])
         rem = (next_d - datetime.now()).days
-        life_rows.append({"관리 항목": item, "상태": "🚨 점검" if rem <= 0 else "✅ 정상", "남은일수": f"{rem}일"})
-    st.table(pd.DataFrame(life_rows))
-with l2:
-    kitchen_rows = [{"카테고리": k, "내용": v} for k, v in MY_DATA["kitchen"].items()]
-    st.table(pd.DataFrame(kitchen_rows))
-
-st.caption(f"Last Sync: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        life_rows.append({"항목": item, "상태": "🚨 점검
