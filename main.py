@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta
 
-# 1. 고정 마스터 데이터
+# 1. 고정 마스터 데이터 (데이터 보존)
 FIXED_DATA = {
     "profile": {"항목": ["나이", "거주", "상태", "결혼예정일"], "내용": ["32세", "평택 원평동", "공무원 발령 대기 중", "2026-05-30"]},
     "health": {"항목": ["현재 체중", "목표 체중", "주요 관리", "식단 금기"], "내용": ["125.0kg", "90.0kg", "고지혈증/ADHD", "생굴/멍게"]},
@@ -28,7 +28,7 @@ EXPENSE_CATS = ["식비(집밥)", "식비(배달)", "식비(외식/편의점)", 
 PAY_METHODS = ["하나카드", "우리카드", "국민카드", "현대카드", "지역화폐", "현금"]
 TARGET = {"cal": 2000, "p": 150, "f": 65, "c": 300, "fiber": 25, "water": 2000}
 
-# 2. 세션 상태 초기화
+# 세션 관리
 if 'cash' not in st.session_state: st.session_state.cash = 492918
 if 'consumed' not in st.session_state: st.session_state.consumed = {"cal": 0, "p": 0, "f": 0, "c": 0, "fiber": 0, "water": 0}
 if 'expenses' not in st.session_state: st.session_state.expenses = {cat: 0 for cat in EXPENSE_CATS}
@@ -49,16 +49,20 @@ def get_live_prices():
         except: prices["stocks"][name] = 0
     return prices
 
-st.set_page_config(page_title="자비스 v4.1", layout="wide")
+st.set_page_config(page_title="자비스 v4.2", layout="wide")
 
-# CSS: 대형 폰트 및 정렬
+# CSS: 폰트 사이즈 최적화(18px) 및 자동 줄바꿈
 st.markdown("""
     <style>
-    .stTable td, .stTable th { font-size: 20px !important; }
+    .stTable td, .stTable th { 
+        font-size: 18px !important; 
+        white-space: normal !important; 
+        word-break: break-all !important;
+    }
     td:nth-child(2), td:nth-child(3) { text-align: right !important; }
-    [data-testid="stMetricValue"] { font-size: 40px !important; font-weight: bold; text-align: right !important; }
-    h1 { font-size: 45px !important; }
-    h2 { font-size: 35px !important; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
+    [data-testid="stMetricValue"] { font-size: 32px !important; font-weight: bold; text-align: right !important; }
+    h1 { font-size: 38px !important; }
+    h2 { font-size: 28px !important; border-bottom: 2px solid #ddd; padding-bottom: 8px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -95,7 +99,7 @@ with st.sidebar:
             st.rerun()
 
 # --- 1. 기본 정보 & 2. 영양 식단 ---
-col1, col2 = st.columns([1, 1.5])
+col1, col2 = st.columns([1, 1.2]) # 비율 조정으로 잘림 방지
 with col1:
     st.header("1. 기본 정보")
     st.table(pd.DataFrame(FIXED_DATA["profile"]).assign(번호=range(1, 5)).set_index('번호'))
@@ -103,8 +107,8 @@ with col1:
 with col2:
     st.header("2. 영양 및 식단")
     n_col1, n_col2 = st.columns(2)
-    n_col1.metric("에너지 섭취", f"{st.session_state.consumed['cal']} / {TARGET['cal']} kcal")
-    n_col2.metric("남은 허용량", f"{TARGET['cal'] - st.session_state.consumed['cal']} kcal")
+    n_col1.metric("에너지 섭취", f"{st.session_state.consumed['cal']}/{TARGET['cal']}kcal")
+    n_col2.metric("남은 허용량", f"{TARGET['cal'] - st.session_state.consumed['cal']}kcal")
     c = st.session_state.consumed
     nut_df = pd.DataFrame([
         {"항목": "단백질", "섭취/목표": f"{c['p']}/{TARGET['p']}g", "잔여": f"{max(0, TARGET['p']-c['p'])}g"},
@@ -117,16 +121,15 @@ with col2:
 st.divider()
 
 # --- 3. 재무 & 4. 지출 ---
-st.header("3 & 4. 재무 및 지출 통합 관리")
+st.header("3 & 4. 재무 및 지출 통합")
 s_cnt = {"삼성전자": 46, "SK하이닉스": 6, "삼성중공업": 88, "동성화인텍": 21}
 s_val = sum(live["stocks"].get(n, 0) * s_cnt[n] for n in FIXED_DATA["assets"]["stocks"])
 b_val = int(FIXED_DATA["assets"]["crypto"]["BTC"] * live["crypto"]["KRW-BTC"])
 e_val = int(FIXED_DATA["assets"]["crypto"]["ETH"] * live["crypto"]["KRW-ETH"])
 
-f_col1, f_col2 = st.columns([1.5, 1])
+f_col1, f_col2 = st.columns([1.3, 1])
 with f_col1:
-    st.subheader("실시간 자산 리포트")
-    assets = [{"항목": "가용 현금", "금액": st.session_state.cash}]
+    assets = [{"항목": "현금", "금액": st.session_state.cash}]
     for k, v in FIXED_DATA["assets"]["savings"].items(): assets.append({"항목": k, "금액": v})
     for n in FIXED_DATA["assets"]["stocks"]: assets.append({"항목": f"주식({n})", "금액": live["stocks"].get(n, 0) * s_cnt[n]})
     assets.append({"항목": "코인(BTC/ETH)", "금액": b_val + e_val})
@@ -138,15 +141,14 @@ with f_col1:
     st.table(df_a.assign(번호=range(1, len(df_a)+1)).set_index('번호'))
 
 with f_col2:
-    st.subheader("지출 현황")
     e_rows = [{"항목": k, "지출": f"{v:,.0f}원"} for k, v in st.session_state.expenses.items() if v > 0]
     if e_rows: st.table(pd.DataFrame(e_rows).assign(번호=range(1, len(e_rows)+1)).set_index('번호'))
-    else: st.info("내역 없음")
+    else: st.info("이번 세션 지출 내역이 없습니다.")
 
 st.divider()
 
 # --- 5. 생활 & 6. 주방 ---
-st.header("5 & 6. 생활 주기 및 주방 재고")
+st.header("5 & 6. 생활 및 주방 재고")
 l_col1, l_col2 = st.columns(2)
 with l_col1:
     l_rows = []
