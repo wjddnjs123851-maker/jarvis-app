@@ -34,7 +34,7 @@ def get_live_prices():
     except: return {"KRW-BTC": 95000000, "KRW-ETH": 3800000}
 
 st.set_page_config(page_title="JARVIS v1.9", layout="wide")
-st.title("🤵 JARVIS : 전지적 보스 시점 (Full-Table)")
+st.title(" JARVIS 한정원 일간리포트")
 
 # --- [SECTION 1] 프로필 및 건강 ---
 st.header("🏁 기본 프로필 및 건강 지표")
