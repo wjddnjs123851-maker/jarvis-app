@@ -28,7 +28,7 @@ EXPENSE_CATS = ["식비(집밥)", "식비(배달)", "식비(외식/편의점)", 
 PAY_METHODS = ["하나카드", "우리카드", "국민카드", "현대카드", "지역화폐", "현금"]
 TARGET = {"cal": 2000, "p": 150, "f": 65, "c": 300, "fiber": 25, "water": 2000}
 
-# 2. 세션 상태
+# 2. 세션 상태 초기화
 if 'cash' not in st.session_state: st.session_state.cash = 492918
 if 'consumed' not in st.session_state: st.session_state.consumed = {"cal": 0, "p": 0, "f": 0, "c": 0, "fiber": 0, "water": 0}
 if 'expenses' not in st.session_state: st.session_state.expenses = {cat: 0 for cat in EXPENSE_CATS}
@@ -49,32 +49,20 @@ def get_live_prices():
         except: prices["stocks"][name] = 0
     return prices
 
-st.set_page_config(page_title="자비스 v4.0", layout="wide")
+st.set_page_config(page_title="자비스 v4.1", layout="wide")
 
-# CSS: 폰트 크기 키우기 및 우측 정렬
+# CSS: 대형 폰트 및 정렬
 st.markdown("""
     <style>
-    /* 표 안의 글자 크기 */
-    .stTable td, .stTable th {
-        font-size: 20px !important;
-    }
-    /* 숫자 데이터 우측 정렬 */
-    td:nth-child(2), td:nth-child(3) {
-        text-align: right !important;
-    }
-    /* Metric(순자산 등) 수치 크기 */
-    [data-testid="stMetricValue"] {
-        font-size: 40px !important;
-        font-weight: bold;
-        text-align: right !important;
-    }
-    /* 섹션 헤더 크기 */
+    .stTable td, .stTable th { font-size: 20px !important; }
+    td:nth-child(2), td:nth-child(3) { text-align: right !important; }
+    [data-testid="stMetricValue"] { font-size: 40px !important; font-weight: bold; text-align: right !important; }
     h1 { font-size: 45px !important; }
     h2 { font-size: 35px !important; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("자비스 : 실시간 라이프 관리")
+st.title("자비스 : 실시간 통합 매니지먼트")
 live = get_live_prices()
 
 # --- 사이드바 ---
@@ -86,7 +74,7 @@ with st.sidebar:
         exp_cat = st.selectbox("카테고리", EXPENSE_CATS)
         st.divider()
         meal_in = st.text_input("음식명")
-        if st.form_submit_button("반영하기"):
+        if st.form_submit_button("반영"):
             m = {"cal": 0, "p": 0, "f": 0, "c": 0, "fiber": 0, "water": 0}
             if "물" in meal_in: m["water"] = 500
             elif "쿼파치" in meal_in: m = {"cal": 1120, "p": 50, "f": 55, "c": 110, "fiber": 5, "water": 0}
@@ -106,8 +94,7 @@ with st.sidebar:
             if last["meal_name"] and st.session_state.meal_history: st.session_state.meal_history.pop()
             st.rerun()
 
-# --- 레이아웃 재배치 ---
-# 1 & 2 섹션 결합 (정보 및 건강)
+# --- 1. 기본 정보 & 2. 영양 식단 ---
 col1, col2 = st.columns([1, 1.5])
 with col1:
     st.header("1. 기본 정보")
@@ -118,41 +105,37 @@ with col2:
     n_col1, n_col2 = st.columns(2)
     n_col1.metric("에너지 섭취", f"{st.session_state.consumed['cal']} / {TARGET['cal']} kcal")
     n_col2.metric("남은 허용량", f"{TARGET['cal'] - st.session_state.consumed['cal']} kcal")
-    
     c = st.session_state.consumed
-    nutri_df = pd.DataFrame([
+    nut_df = pd.DataFrame([
         {"항목": "단백질", "섭취/목표": f"{c['p']}/{TARGET['p']}g", "잔여": f"{max(0, TARGET['p']-c['p'])}g"},
         {"항목": "지방", "섭취/목표": f"{c['f']}/{TARGET['f']}g", "잔여": f"{max(0, TARGET['f']-c['f'])}g"},
         {"항목": "식이섬유", "섭취/목표": f"{c['fiber']}/{TARGET['fiber']}g", "잔여": f"{max(0, TARGET['fiber']-c['fiber'])}g"},
         {"항목": "수분", "섭취/목표": f"{c['water']}/{TARGET['water']}ml", "잔여": f"{max(0, TARGET['water']-c['water'])}ml"}
     ]).assign(번호=range(1, 5)).set_index('번호')
-    st.table(nutri_df)
+    st.table(nut_df)
 
 st.divider()
 
-# 3 & 4 섹션 결합 (재무 및 지출)
+# --- 3. 재무 & 4. 지출 ---
 st.header("3 & 4. 재무 및 지출 통합 관리")
-# 주식/코인 계산
-s_counts = {"삼성전자": 46, "SK하이닉스": 6, "삼성중공업": 88, "동성화인텍": 21}
-total_stock_val = sum(live["stocks"].get(n, 0) * s_counts[n] for n in FIXED_DATA["assets"]["stocks"])
-btc_val = int(FIXED_DATA["assets"]["crypto"]["BTC"] * live["crypto"]["KRW-BTC"])
-eth_val = int(FIXED_DATA["assets"]["crypto"]["ETH"] * live["crypto"]["KRW-ETH"])
+s_cnt = {"삼성전자": 46, "SK하이닉스": 6, "삼성중공업": 88, "동성화인텍": 21}
+s_val = sum(live["stocks"].get(n, 0) * s_cnt[n] for n in FIXED_DATA["assets"]["stocks"])
+b_val = int(FIXED_DATA["assets"]["crypto"]["BTC"] * live["crypto"]["KRW-BTC"])
+e_val = int(FIXED_DATA["assets"]["crypto"]["ETH"] * live["crypto"]["KRW-ETH"])
 
 f_col1, f_col2 = st.columns([1.5, 1])
 with f_col1:
-    st.subheader("실시간 순자산 리포트")
-    all_assets = [{"항목": "현금", "금액": st.session_state.cash}]
-    for k, v in FIXED_DATA["assets"]["savings"].items(): all_assets.append({"항목": k, "금액": v})
-    for n in FIXED_DATA["assets"]["stocks"]: all_assets.append({"항목": f"주식({n})", "금액": live["stocks"].get(n, 0) * s_counts[n]})
-    all_assets.append({"항목": "코인(BTC/ETH)", "금액": btc_val + eth_v})
-    
-    df_assets = pd.DataFrame(all_assets)
-    t_asset = df_assets['금액'].sum()
-    t_debt = sum(FIXED_DATA["assets"]["liabilities"].values())
-    
-    st.metric("실시간 총 순자산", f"{t_asset - t_debt:,.0f}원")
-    df_assets['금액'] = df_assets['금액'].apply(lambda x: f"{x:,.0f}원")
-    st.table(df_assets.assign(번호=range(1, len(df_assets)+1)).set_index('번호'))
+    st.subheader("실시간 자산 리포트")
+    assets = [{"항목": "가용 현금", "금액": st.session_state.cash}]
+    for k, v in FIXED_DATA["assets"]["savings"].items(): assets.append({"항목": k, "금액": v})
+    for n in FIXED_DATA["assets"]["stocks"]: assets.append({"항목": f"주식({n})", "금액": live["stocks"].get(n, 0) * s_cnt[n]})
+    assets.append({"항목": "코인(BTC/ETH)", "금액": b_val + e_val})
+    df_a = pd.DataFrame(assets)
+    t_a = df_a['금액'].sum()
+    t_d = sum(FIXED_DATA["assets"]["liabilities"].values())
+    st.metric("실시간 총 순자산", f"{t_a - t_d:,.0f}원")
+    df_a['금액'] = df_a['금액'].apply(lambda x: f"{x:,.0f}원")
+    st.table(df_a.assign(번호=range(1, len(df_a)+1)).set_index('번호'))
 
 with f_col2:
     st.subheader("지출 현황")
@@ -162,14 +145,14 @@ with f_col2:
 
 st.divider()
 
-# 5 & 6 섹션 결합 (생활 및 주방)
+# --- 5. 생활 & 6. 주방 ---
 st.header("5 & 6. 생활 주기 및 주방 재고")
 l_col1, l_col2 = st.columns(2)
 with l_col1:
-    rows = []
+    l_rows = []
     for item, info in FIXED_DATA["lifecycle"].items():
-        rem = (datetime.strptime(info["last"], "%Y-%m-%d") + timedelta(days=info["period"]) - datetime.now()).days
-        rows.append({"항목": item, "상태": "🚨 점검" if rem <= 0 else "✅ 정상", "D-Day": f"{rem}일"})
-    st.table(pd.DataFrame(rows).assign(번호=range(1, 5)).set_index('번호'))
+        r = (datetime.strptime(info["last"], "%Y-%m-%d") + timedelta(days=info["period"]) - datetime.now()).days
+        l_rows.append({"항목": item, "상태": "🚨 점검" if r <= 0 else "✅ 정상", "D-Day": f"{r}일"})
+    st.table(pd.DataFrame(l_rows).assign(번호=range(1, 5)).set_index('번호'))
 with l_col2:
     st.table(pd.DataFrame([{"카테고리": k, "내용": v} for k, v in FIXED_DATA["kitchen"].items()]).assign(번호=range(1, 5)).set_index('번호'))
