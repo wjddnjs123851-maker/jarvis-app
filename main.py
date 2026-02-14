@@ -9,7 +9,7 @@ SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
 GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# 일일 권장 섭취량 가이드라인 (보스 전용)
+# 일일 권장 섭취 가이드 (체중 감량 목표 반영)
 DAILY_GUIDE = {
     "지방": 65, "콜레스테롤": 300, "나트륨": 2000, 
     "탄수화물": 300, "식이섬유": 30, "당": 50, "단백질": 150, "칼로리": 2000
@@ -22,6 +22,11 @@ def format_krw(val):
         return f"{n:,}원"
     except: return "0원"
 
+def to_numeric(val):
+    try:
+        return int(float(str(val).replace(',', '').replace('원', '').strip()))
+    except: return 0
+
 def send_to_sheet(d_type, item, value):
     now = datetime.utcnow() + timedelta(hours=9)
     payload = {"time": now.strftime('%Y-%m-%d %H:%M:%S'), "type": d_type, "item": item, "value": value}
@@ -31,15 +36,15 @@ def send_to_sheet(d_type, item, value):
     except: return False
 
 @st.cache_data(ttl=5)
-def load_assets():
-    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_MAP['Assets']}"
+def load_sheet_data(gid):
+    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
     try:
         df = pd.read_csv(url)
         return df.dropna().reset_index(drop=True)
     except: return pd.DataFrame()
 
-# --- [3. 메인 인터페이스 스타일] ---
-st.set_page_config(page_title="JARVIS v32.7", layout="wide")
+# --- [3. 메인 인터페이스 설정] ---
+st.set_page_config(page_title="JARVIS v32.8", layout="wide")
 st.markdown("<style>.stTable td { text-align: right !important; }</style>", unsafe_allow_html=True)
 
 with st.sidebar:
@@ -48,7 +53,9 @@ with st.sidebar:
     st.divider()
     
     if menu == "식단 & 건강":
-        st.subheader("실시간 섭취 분석")
+        st.subheader("데이터 입력 및 실시간 분석")
+        # 보스 요청 영양소 순서 고정
+        in_w = st.number_input("체중(kg)", 0.0, 150.0, 125.0)
         in_fat = st.number_input("지방 (g)", 0)
         in_chol = st.number_input("콜레스테롤 (mg)", 0)
         in_na = st.number_input("나트륨 (mg)", 0)
@@ -58,65 +65,70 @@ with st.sidebar:
         in_prot = st.number_input("단백질 (g)", 0)
         in_kcal = st.number_input("칼로리 (kcal)", 0)
         
-        # 실시간 상태 표시
-        input_data = {"지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "탄수화물": in_carb, 
-                      "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot, "칼로리": in_kcal}
+        # 실시간 상태 바
+        current_inputs = {"지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "탄수화물": in_carb, 
+                          "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot, "칼로리": in_kcal}
         
-        for k, v in input_data.items():
+        for k, v in current_inputs.items():
             if v > 0:
                 ratio = min(v / DAILY_GUIDE[k], 1.0)
-                st.caption(f"{k}: {v} / {DAILY_GUIDE[k]}")
+                st.caption(f"{k} 달성률: {int(ratio*100)}% ({v}/{DAILY_GUIDE[k]})")
                 st.progress(ratio)
         
-        if st.button("시트로 전송", use_container_width=True):
-            for k, v in input_data.items():
+        if st.button("데이터 전송", use_container_width=True):
+            send_to_sheet("건강", "체중", in_w)
+            for k, v in current_inputs.items():
                 if v > 0: send_to_sheet("식단", k, v)
-            st.success("전송 완료")
+            st.success("시트 업데이트 완료")
 
-# --- [4. 메인 화면] ---
+# --- [4. 메인 대시보드] ---
 st.title(f"시스템: {menu}")
 
 if menu == "투자 & 자산":
-    df_raw = load_assets()
-    if not df_raw.empty:
-        # 데이터 정리 및 총계 계산
-        df_raw.columns = ["항목", "금액"]
-        df_raw["numeric"] = df_raw["금액"].apply(lambda x: int(float(str(x).replace(',', '').replace('원', '').strip())))
+    # 자산 데이터 로드
+    df_assets = load_sheet_data(GID_MAP["Assets"])
+    
+    if not df_assets.empty:
+        df_assets.columns = ["항목", "금액"]
+        df_assets["val"] = df_assets["금액"].apply(to_numeric)
         
-        # 자산/부채 분리 (금액이 마이너스면 부채로 간주하거나 항목 이름으로 판별 가능)
-        assets = df_raw[df_raw["numeric"] >= 0]
-        liabilities = df_raw[df_raw["numeric"] < 0]
+        # 총계 계산
+        total_a = df_assets[df_assets["val"] > 0]["val"].sum()
+        total_l = df_assets[df_assets["val"] < 0]["val"].sum()
         
-        total_asset = assets["numeric"].sum()
-        total_liab = liabilities["numeric"].sum()
-        
-        st.subheader("자산 및 부채 상세")
-        df_display = df_raw[["항목", "금액"]].copy()
-        df_display.index = range(1, len(df_display) + 1) # 순번 1부터 시작
-        st.table(df_display)
-        
-        # 하단 총계 요약
-        st.divider()
+        # 상단 요약 카드
         c1, c2, c3 = st.columns(3)
-        c1.metric("자산 총계", format_krw(total_asset))
-        c2.metric("부채 총계", format_krw(total_liab))
-        c3.metric("순자산", format_krw(total_asset + total_liab))
+        c1.metric("총 자산", format_krw(total_a))
+        c2.metric("총 부채", format_krw(total_l))
+        c3.metric("순자산", format_krw(total_a + total_l))
+        
+        # 상세 내역 표 (순번 1부터)
+        st.subheader("항목별 상세 현황")
+        display_df = df_assets[["항목", "금액"]].copy()
+        display_df.index = range(1, len(display_df) + 1)
+        st.table(display_df)
+
+elif menu == "식단 & 건강":
+    st.info("왼쪽 사이드바에서 데이터를 입력하면 실시간 분석과 시트 전송이 가능합니다.")
+    st.divider()
+    # 결혼식 목표 강조
+    st.warning("목표: 5월 30일 결혼식 전 체중 감량") 
 
 elif menu == "재고 관리":
     # 1. 생활용품 관리주기
     st.subheader("생활용품 관리주기")
-    household_df = pd.DataFrame([
-        {"품목": "세탁세제", "교체/구매주기": "3개월", "최근교체": "2026-01-10", "상태": "양호"},
-        {"품목": "칫솔", "교체/구매주기": "1개월", "최근교체": "2026-01-25", "상태": "교체예정"},
+    household_data = pd.DataFrame([
+        {"품목": "세탁세제", "교체주기": "3개월", "상태": "양호"},
+        {"품목": "칫솔", "교체주기": "1개월", "상태": "교체필요"}
     ])
-    household_df.index = range(1, len(household_df) + 1)
-    st.table(household_df)
+    household_data.index = range(1, len(household_data) + 1)
+    st.table(household_data)
 
     # 2. 식자재 관리
-    st.subheader("식자재 재고 현황")
-    food_df = pd.DataFrame([
-        {"품목": "닭가슴살", "유통기한": "2026-05-30", "잔량": "10팩", "보관": "냉동"},
-        {"품목": "계란", "유통기한": "2026-02-25", "잔량": "5알", "보관": "냉장"},
+    st.subheader("식자재 재고 관리")
+    food_data = pd.DataFrame([
+        {"품목": "닭가슴살", "잔량": "12팩", "보관": "냉동"},
+        {"품목": "계란", "잔량": "6알", "보관": "냉장"}
     ])
-    food_df.index = range(1, len(food_df) + 1)
-    st.table(food_df)
+    food_data.index = range(1, len(food_data) + 1)
+    st.table(food_data)
