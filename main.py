@@ -4,7 +4,7 @@ import requests
 import json
 from datetime import datetime, timedelta
 
-# 1. 마스터 데이터 (주식/코인 평단가 최신화)
+# --- [1. 마스터 데이터: 보스의 자산 및 목표 지표] ---
 FIXED_DATA = {
     "health": {"항목": ["목표 체중", "주요 관리", "식단 금기"], "내용": ["90.0kg", "고지혈증/ADHD", "생굴/멍게"]},
     "stocks": {
@@ -18,6 +18,7 @@ FIXED_DATA = {
         "ETH": {"평단": 4243000, "수량": 0.03417393, "마켓": "KRW-ETH"}
     },
     "assets": {
+        "cash": {"가용 현금": 492918, "금(Gold)": 0}, # 금은 정보를 주시면 업데이트 하겠습니다.
         "savings": {"청년도약계좌": 14700000, "주택청약": 2540000, "전세보증금": 145850000},
         "liabilities": {"전세대출": 100000000, "마이너스통장": 3000000, "학자금대출": 1247270}
     },
@@ -34,12 +35,12 @@ FIXED_DATA = {
 }
 
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
-TARGET = {"칼로리": 2000, "탄수": 300, "단백": 150, "지방": 65, "수분": 2000}
+TARGET = {"칼로리": 2000, "탄수": 300, "단백": 150, "지방": 65, "당": 50, "나트륨": 2000, "콜레스테롤": 300}
 
-# 2. 유틸리티 함수
+# --- [2. 시스템 유틸리티] ---
 def send_to_sheet(d_type, item, value):
-    # 한국 시간 강제 고정 (UTC+9)
-    kr_time = (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S')
+    now = datetime.utcnow() + timedelta(hours=9)
+    kr_time = now.strftime('%Y-%m-%d %H:%M:%S')
     payload = {"time": kr_time, "type": d_type, "item": item, "value": value}
     try:
         requests.post(API_URL, data=json.dumps(payload), timeout=5)
@@ -60,79 +61,112 @@ def get_live_prices():
         for k, v in FIXED_DATA["crypto"].items(): prices["crypto"][v['마켓']] = v['평단']
     return prices
 
-# 3. 레이아웃
-st.set_page_config(page_title="자비스 v12.0", layout="wide")
+# --- [3. UI 설정 및 사이드바 입력창] ---
+st.set_page_config(page_title="JARVIS v13.0", layout="wide")
 if 'consumed' not in st.session_state: st.session_state.consumed = {k: 0 for k in TARGET.keys()}
 
-st.title("JARVIS 통합 대시보드")
-tabs = st.tabs(["영양/식단/체중", "자산/투자", "재고/생활", "가계부 기록"])
+with st.sidebar:
+    st.title("JARVIS 입력 센터")
+    
+    # 1. 건강/식단/체중 통합 입력
+    with st.expander("건강 및 식단 기록", expanded=True):
+        in_w = st.number_input("오늘 체중(kg)", 125.0, step=0.1)
+        in_kcal = st.number_input("칼로리(kcal)", 0)
+        in_carb = st.number_input("탄수(g)", 0)
+        in_prot = st.number_input("단백(g)", 0)
+        in_fat = st.number_input("지방(g)", 0)
+        in_sug = st.number_input("당(g)", 0)
+        in_na = st.number_input("나트륨(mg)", 0)
+        in_cho = st.number_input("콜레스테롤(mg)", 0)
+        
+        if st.button("건강 데이터 시트 전송"):
+            send_to_sheet("체중", "일일체크", in_w)
+            send_to_sheet("식단", "칼로리", in_kcal)
+            # 앱 내 세션 업데이트
+            update_vals = [in_kcal, in_carb, in_prot, in_fat, in_sug, in_na, in_cho]
+            for k, v in zip(TARGET.keys(), update_vals):
+                st.session_state.consumed[k] += v
+            st.success("건강 기록 완료")
 
-# 탭 1: 영양/식단/체중
+    # 2. 가계부 통합 입력
+    with st.expander("가계부 기록", expanded=False):
+        t_type = st.selectbox("구분", ["지출", "수입"])
+        t_item = st.text_input("항목명")
+        t_val = st.number_input("금액", 0)
+        if st.button("가계부 시트 전송"):
+            if send_to_sheet(t_type, t_item, t_val):
+                st.success(f"{t_type} 내역 저장 완료")
+
+# --- [4. 메인 대시보드 리포트] ---
+st.title("JARVIS 통합 리포트")
+tabs = st.tabs(["건강 리포트", "자산 리포트", "생활 관리"])
+
+# 탭 1: 건강 리포트
 with tabs[0]:
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("체중 기록")
-        weight = st.number_input("현재 체중(kg)", value=125.0, step=0.1)
-        if st.button("체중 저장"):
-            send_to_sheet("체중", "일일체크", weight)
-            st.success("시트 전송 완료")
-            
-    with col2:
-        st.subheader("식단 입력 (FatSecret)")
-        kcal = st.number_input("칼로리", 0)
-        carb = st.number_input("탄수", 0)
-        prot = st.number_input("단백", 0)
-        fat = st.number_input("지방", 0)
-        if st.button("영양 데이터 전송"):
-            send_to_sheet("식단", "칼로리", kcal)
-            st.session_state.consumed['칼로리'] += kcal
-            st.session_state.consumed['탄수'] += carb
-            st.session_state.consumed['단백'] += prot
-            st.session_state.consumed['지방'] += fat
-            st.rerun()
-
     st.subheader("오늘의 영양 섭취 현황")
-    st.table(pd.DataFrame([{"항목": k, "현재": v, "목표": TARGET[k]} for k, v in st.session_state.consumed.items()]))
+    nut_rows = []
+    for k, v in st.session_state.consumed.items():
+        nut_rows.append({"항목": k, "현재": v, "목표": TARGET[k], "상태": "초과" if v > TARGET[k] else "정상"})
+    df_nut = pd.DataFrame(nut_rows)
+    df_nut.index = range(1, len(df_nut) + 1)
+    st.table(df_nut)
+    
+    st.subheader("건강 관리 가이드")
+    df_health = pd.DataFrame(FIXED_DATA["health"])
+    df_health.index = range(1, len(df_health) + 1)
+    st.table(df_health)
 
-# 탭 2: 자산/투자
+# 탭 2: 자산 리포트 (통합 자산 관리)
 with tabs[1]:
     live = get_live_prices()
-    st.subheader("국내 주식 수익률")
-    s_data = []
+    st.subheader("종합 자산 상세")
+    
+    asset_rows = []
+    # 1. 현금 및 금
+    for k, v in FIXED_DATA["assets"]["cash"].items():
+        asset_rows.append({"분류": "가용자산", "항목": k, "평가금액": f"{v:,}원", "비고": "-"})
+    
+    # 2. 예적금
+    for k, v in FIXED_DATA["assets"]["savings"].items():
+        asset_rows.append({"분류": "예적금", "항목": k, "평가금액": f"{v:,}원", "비고": "-"})
+    
+    # 3. 주식 실시간
     for n, i in FIXED_DATA["stocks"].items():
         curr = live["stocks"].get(n, i['평단'])
-        profit = (curr - i['평단']) * i['수량']
+        eval_amt = curr * i['수량']
         rate = ((curr / i['평단']) - 1) * 100
-        s_data.append({"종목": n, "현재가": f"{curr:,}", "수익률": f"{rate:.2f}%", "평가손익": f"{int(profit):,}"})
-    st.table(pd.DataFrame(s_data))
-
-    st.subheader("가상자산 수익률")
-    c_data = []
+        asset_rows.append({"분류": "주식", "항목": n, "평가금액": f"{eval_amt:,}원", "비고": f"수익률 {rate:.2f}%"})
+        
+    # 4. 코인 실시간
     for n, i in FIXED_DATA["crypto"].items():
         curr = live["crypto"].get(i['마켓'], i['평단'])
-        profit = (curr - i['평단']) * i['수량']
+        eval_amt = int(curr * i['수량'])
         rate = ((curr / i['평단']) - 1) * 100
-        c_data.append({"코인": n, "현재가": f"{curr:,.0f}", "수익률": f"{rate:.2f}%", "평가손익": f"{int(profit):,}"})
-    st.table(pd.DataFrame(c_data))
+        asset_rows.append({"분류": "코인", "항목": n, "평가금액": f"{eval_amt:,}원", "비고": f"수익률 {rate:.2f}%"})
+        
+    # 5. 부채
+    for k, v in FIXED_DATA["assets"]["liabilities"].items():
+        asset_rows.append({"분류": "부채", "항목": k, "평가금액": f"-{v:,}원", "비고": "상환 필요"})
 
-# 탭 3: 재고/생활
+    df_asset = pd.DataFrame(asset_rows)
+    df_asset.index = range(1, len(df_asset) + 1)
+    st.table(df_asset)
+
+# 탭 3: 생활 관리
 with tabs[2]:
-    st.subheader("교체 주기")
-    l_rows = []
-    for item, info in FIXED_DATA["lifecycle"].items():
-        d_day = (datetime.strptime(info["last"], "%Y-%m-%d") + timedelta(days=info["period"]) - (datetime.utcnow() + timedelta(hours=9))).days
-        l_rows.append({"항목": item, "상태": f"{d_day}일 남음", "최근": info["last"]})
-    st.table(pd.DataFrame(l_rows))
-    
-    st.subheader("주방 재고")
-    st.table(pd.DataFrame([{"구분": k, "내용": v} for k, v in FIXED_DATA["kitchen"].items()]))
-
-# 탭 4: 가계부 기록 (지출/수입)
-with tabs[3]:
-    st.subheader("지출 및 수입 기록")
-    t_type = st.selectbox("구분", ["지출", "수입"])
-    t_item = st.text_input("항목명 (예: 편의점, 월급 등)")
-    t_val = st.number_input("금액", 0)
-    if st.button("가계부 시트 전송"):
-        if send_to_sheet(t_type, t_item, t_val):
-            st.success(f"{t_type} 내역이 Finance 탭에 저장되었습니다.")
+    col_l, col_k = st.columns(2)
+    with col_l:
+        st.subheader("교체 주기")
+        l_rows = []
+        for item, info in FIXED_DATA["lifecycle"].items():
+            d_day = (datetime.strptime(info["last"], "%Y-%m-%d") + timedelta(days=info["period"]) - (datetime.utcnow() + timedelta(hours=9))).days
+            l_rows.append({"항목": item, "상태": f"{d_day}일 남음", "최근수행": info["last"]})
+        df_l = pd.DataFrame(l_rows)
+        df_l.index = range(1, len(df_l) + 1)
+        st.table(df_l)
+        
+    with col_k:
+        st.subheader("주방 재고")
+        df_k = pd.DataFrame([{"카테고리": k, "내용": v} for k, v in FIXED_DATA["kitchen"].items()])
+        df_k.index = range(1, len(df_k) + 1)
+        st.table(df_k)
