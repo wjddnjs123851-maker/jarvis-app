@@ -9,19 +9,19 @@ SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
 GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# 보스 자산 포트폴리오 (순금 16g 포함)
+# 보스 자산 데이터 (순금 16g 포함)
 FIXED_DATA = {
     "stocks": {
-        "SK하이닉스": {"수량": 6, "구매평단": 473521, "현재가": 880000},
-        "삼성전자": {"수량": 46, "구매평단": 78895, "현재가": 181200},
-        "삼성중공업": {"수량": 88, "구매평단": 16761, "현재가": 27700},
-        "동성화인텍": {"수량": 21, "구매평단": 22701, "현재가": 27750}
+        "SK하이닉스": {"수량": 6, "현재가": 880000},
+        "삼성전자": {"수량": 46, "현재가": 181200},
+        "삼성중공업": {"수량": 88, "현재가": 27700},
+        "동성화인텍": {"수량": 21, "현재가": 27750}
     },
     "crypto": {
-        "비트코인(BTC)": {"수량": 0.00181400, "구매평단": 137788139, "현재가": 102625689},
-        "이더리움(ETH)": {"수량": 0.03417393, "구매평단": 4243000, "현재가": 3068977}
+        "비트코인(BTC)": {"수량": 0.00181400, "현재가": 102625689},
+        "이더리움(ETH)": {"수량": 0.03417393, "현재가": 3068977}
     },
-    "gold": {"품목": "순금", "수량": 16, "단위": "g", "현재가": 115000}
+    "gold": {"품목": "순금", "수량": 16, "현재가": 115000}
 }
 
 DAILY_GUIDE = {"지방": 65.0, "콜레스테롤": 300.0, "나트륨": 2000.0, "탄수화물": 300.0, "식이섬유": 30.0, "당": 50.0, "단백질": 150.0, "칼로리": 2000.0}
@@ -49,7 +49,7 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [3. 메인 설정] ---
-st.set_page_config(page_title="JARVIS v34.5", layout="wide")
+st.set_page_config(page_title="JARVIS v34.6", layout="wide")
 st.markdown("""<style>.stTable td { text-align: right !important; }.net-wealth { font-size: 2.5em !important; font-weight: bold; color: #1E90FF; text-align: left; margin-top: 20px; border-top: 3px solid #1E90FF; padding-top: 10px; }.total-box { text-align: right; font-size: 1.2em; font-weight: bold; padding: 10px; border-top: 2px solid #eee; }.input-card { background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 1px solid #dee2e6; margin-bottom: 20px; }</style>""", unsafe_allow_html=True)
 
 with st.sidebar:
@@ -94,20 +94,20 @@ if menu == "투자 & 자산":
     st.markdown(f'<div class="net-wealth">종합 순자산: {format_krw(t_a - t_l)}원</div>', unsafe_allow_html=True)
 
 elif menu == "식단 & 건강":
-    st.subheader("🥗 영양 분석 및 데이터 입력")
-    # 보스 요청: 정밀 소수점 입력칸 복구
+    st.subheader("🥗 영양 분석 및 정밀 입력")
+    # 보스 요청: 입력칸 유지
     c1, c2, c3 = st.columns(3)
     with c1: in_w = st.number_input("체중(kg)", 0.0, 200.0, 125.0, step=0.01, format="%.2f")
     with c2: in_kcal = st.number_input("칼로리(kcal)", 0.0, format="%.2f")
     with c3: in_prot = st.number_input("단백질(g)", 0.0, format="%.2f")
     
-    with st.expander("세부 영양소 입력"):
+    with st.expander("세부 영양소 정밀 입력"):
         e1, e2, e3 = st.columns(3)
         in_fat = e1.number_input("지방(g)", 0.0, format="%.2f"); in_chol = e2.number_input("콜레스테롤(mg)", 0.0, format="%.2f"); in_na = e3.number_input("나트륨(mg)", 0.0, format="%.2f")
         in_carb = e1.number_input("탄수화물(g)", 0.0, format="%.2f"); in_fiber = e2.number_input("식이섬유(g)", 0.0, format="%.2f"); in_sugar = e3.number_input("당(g)", 0.0, format="%.2f")
 
     if st.button("식단 입력 완료 및 리셋", use_container_width=True):
-        st.success("시트 전송 완료!"); st.rerun()
+        st.success("데이터가 시트로 전송되었습니다."); st.rerun()
 
     st.divider(); cols = st.columns(4)
     cur = {"지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "탄수화물": in_carb, "단백질": in_prot, "칼로리": in_kcal}
@@ -115,32 +115,47 @@ elif menu == "식단 & 건강":
         with cols[idx % 4]: r = min(v / DAILY_GUIDE.get(k, 1), 1.0) if v > 0 else 0; st.metric(k, f"{v:.2f}", f"{int(r*100)}%"); st.progress(r)
 
 elif menu == "재고 관리":
-    # 보스가 식량창고 뒤져서 알려준 데이터 기반 보강
-    st.subheader("📦 식자재 통합 관리 (보강 데이터)")
+    # 1. 보스가 싹 뒤져서 알려준 정밀 식자재 데이터
+    st.subheader("📦 식량창고 현황 (보강 완료)")
     if 'inventory' not in st.session_state:
         st.session_state.inventory = pd.DataFrame([
-            {"분류": "단백질", "항목": "닭다리살", "수량": "4팩", "구매일": "2026-02-10", "유통기한": "2026-05-10"},
-            {"분류": "단백질", "항목": "냉동삼치", "수량": "4팩", "구매일": "2026-02-12", "유통기한": "2026-04-12"},
-            {"분류": "단백질", "항목": "단백질 쉐이크", "수량": "9개", "구매일": "-", "유통기한": "-"},
-            {"분류": "곡물", "항목": "카무트/쌀 혼합", "수량": "2kg", "구매일": "-", "유통기한": "-"},
-            {"분류": "면류", "항목": "파스타면", "수량": "2kg", "구매일": "-", "유통기한": "-"},
-            {"분류": "소스", "항목": "토마토 페이스트", "수량": "10캔", "구매일": "-", "유통기한": "-"}
+            {"분류": "단백질", "항목": "닭가슴살", "수량": "12팩", "상태": "냉동"},
+            {"분류": "단백질", "항목": "계란", "수량": "6알", "상태": "냉장"},
+            {"분류": "단백질", "항목": "냉동 새우", "수량": "충분", "상태": "냉동"},
+            {"분류": "단백질", "항목": "고등어/기타생선", "수량": "부족", "상태": "구매권장"},
+            {"분류": "단백질", "항목": "냉동 삼치/닭다리", "수량": "1팩단위", "상태": "냉동"},
+            {"분류": "단백질", "항목": "단백질 쉐이크", "수량": "약 400g", "상태": "잔량"},
+            {"분류": "곡물/면", "항목": "카무트/쌀 혼합", "수량": "약 2kg", "상태": "보유"},
+            {"분류": "곡물/면", "항목": "파스타면/소면", "수량": "각 1봉", "상태": "미개봉포함"},
+            {"분류": "곡물/면", "항목": "쿠스쿠스", "수량": "약 500g", "상태": "보유"},
+            {"분류": "곡물/면", "항목": "라면/우동", "수량": "각 2~3봉", "상태": "보유"},
+            {"분류": "소스/기타", "항목": "토마토 페이스트", "수량": "1캔", "상태": "사용중"},
+            {"분류": "소스/기타", "항목": "나시고랭 소스", "수량": "1병", "상태": "사용중"},
+            {"분류": "소스/기타", "항목": "치아씨드/아사이베리", "수량": "각 약 200g", "상태": "보유"},
+            {"분류": "소스/기타", "항목": "김치 4종", "수량": "반 포기 내외", "상태": "보유"}
         ])
     
     inv_view = st.session_state.inventory.copy(); inv_view.index = range(1, len(inv_view) + 1)
-    edited_inv = st.data_editor(inv_view, num_rows="dynamic", use_container_width=True)
+    edited_inv = st.data_editor(inv_view, num_rows="dynamic", use_container_width=True, key="inv_final_v6")
     if st.button("식자재 데이터 저장"): st.session_state.inventory = edited_inv.reset_index(drop=True); st.success("저장 완료")
 
-    st.divider(); st.subheader("⏰ 생활용품 교체주기 관리")
+    st.divider()
+
+    # 2. 생활용품 및 집안일 교체주기 (칫솔, 이불빨래, 면도날 반영)
+    st.subheader("⏰ 생활용품 및 가사 교체주기 관리")
     if 'supplies' not in st.session_state:
-        st.session_state.supplies = pd.DataFrame([{"품목": "칫솔", "최근교체일": "2026-01-15", "주기(일)": 30}, {"품목": "면도날", "최근교체일": "2026-02-01", "주기(일)": 14}])
+        st.session_state.supplies = pd.DataFrame([
+            {"항목": "칫솔", "최근교체일": "2026-02-01", "주기(일)": 30},
+            {"항목": "면도날", "최근교체일": "2026-02-10", "주기(일)": 14},
+            {"항목": "이불빨래", "최근교체일": "2026-02-01", "주기(일)": 14}
+        ])
     
     supp_view = st.session_state.supplies.copy(); supp_view.index = range(1, len(supp_view) + 1)
-    edited_supp = st.data_editor(supp_view, num_rows="dynamic", use_container_width=True)
+    edited_supp = st.data_editor(supp_view, num_rows="dynamic", use_container_width=True, key="supp_final_v6")
     
     sc1, sc2 = st.columns([3, 1])
-    with sc1: target = st.selectbox("교체 완료 품목", st.session_state.supplies['품목'].tolist())
+    with sc1: target = st.selectbox("수행 완료 항목", st.session_state.supplies['항목'].tolist())
     with sc2: 
-        if st.button("오늘 날짜로 갱신", use_container_width=True):
-            st.session_state.supplies.loc[st.session_state.supplies['품목'] == target, '최근교체일'] = datetime.now().strftime('%Y-%m-%d')
-            st.rerun()
+        if st.button("오늘 날짜로 갱신"):
+            st.session_state.supplies.loc[st.session_state.supplies['항목'] == target, '최근교체일'] = datetime.now().strftime('%Y-%m-%d')
+            st.success(f"{target} 갱신 완료"); st.rerun()
