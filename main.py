@@ -167,100 +167,96 @@ if menu == "투자 & 자산":
 elif menu == "식단 & 건강":
     st.header("🥗 실시간 영양 분석 리포트")
     
-    # 1. D-Day 및 체중 그래프
+    # D-Day 계산
     try: d_day = (datetime(2026, 5, 30) - datetime.now()).days
     except: d_day = 0
     st.info(f"💍 결혼식까지 D-{d_day} | 현재 체중 125.00kg 기준 감량 모드")
 
-    st.subheader("📉 체중 변화 추세")
-    try:
-        df_log = load_sheet_data(GID_MAP["Log"])
-        if not df_log.empty:
-            df_log.columns = ["날짜", "구분", "항목", "수치"]
-            w_df = df_log[(df_log["구분"] == "건강") & (df_log["항목"] == "체중")].copy()
-            if not w_df.empty:
-                w_df["날짜"] = pd.to_datetime(w_df["날짜"])
-                w_df["수치"] = w_df["수치"].apply(to_numeric)
-                st.line_chart(w_df.set_index("날짜")[["수치"]].sort_index(), color="#FF4B4B")
-            else: st.caption("아직 기록된 체중 데이터가 없습니다.")
-    except: st.warning("데이터 로딩 중...")
+    # 화면 분할 (좌: 입력 6 / 우: 요약 4)
+    col_input, col_summary = st.columns([6, 4])
 
-    # 2. 오늘 섭취량 요약 (자동 합산)
-    cur_nutri = {k: 0 for k in DAILY_GUIDE.keys()}
-    today_str = datetime.now().strftime('%Y-%m-%d')
-    current_kcal = 0
-    
-    if not df_log.empty:
+    # === [왼쪽] 영양 성분 상세 기록 ===
+    with col_input:
+        st.subheader("📝 영양 성분 상세 기록")
+        st.caption("팻시크릿 앱 수치를 그대로 옮겨 적으세요.")
+        
+        with st.form("full_input"):
+            in_w = st.number_input("오늘 체중 (kg / 변동 없으면 유지)", 0.0, 200.0, 125.0, step=0.1)
+            st.markdown("---")
+            
+            c_in1, c_in2 = st.columns(2)
+            with c_in1:
+                in_kcal = st.number_input("칼로리 (kcal)", 0.0, step=10.0)
+                in_carb = st.number_input("탄수화물 (g)", 0.0, step=1.0)
+                in_sugar = st.number_input("당류 (g)", 0.0, step=1.0)
+                in_na = st.number_input("나트륨 (mg)", 0.0, step=10.0)
+            with c_in2:
+                in_prot = st.number_input("단백질 (g)", 0.0, step=1.0)
+                in_fat = st.number_input("지방 (g)", 0.0, step=1.0)
+                in_fiber = st.number_input("식이섬유 (g)", 0.0, step=1.0)
+                in_chol = st.number_input("콜레스테롤 (mg)", 0.0, step=10.0)
+
+            st.write("")
+            if st.form_submit_button("✅ 데이터 저장", use_container_width=True):
+                if in_w > 0 and in_w != 125.0: send_to_sheet("건강", "체중", in_w, corpus="Health")
+                nutri_map = {
+                    "칼로리": in_kcal, "탄수화물": in_carb, "단백질": in_prot, "지방": in_fat,
+                    "당": in_sugar, "식이섬유": in_fiber, "나트륨": in_na, "콜레스테롤": in_chol
+                }
+                saved_count = 0
+                for key, val in nutri_map.items():
+                    if val > 0:
+                        send_to_sheet("식단", key, val, corpus="Health")
+                        saved_count += 1
+                if saved_count > 0: st.success(f"{saved_count}개 항목 저장 완료!"); st.rerun()
+
+    # === [오른쪽] 요약 및 그래프 ===
+    with col_summary:
+        st.subheader("📊 오늘의 요약")
+        
+        # 데이터 집계 로직
+        cur_nutri = {k: 0 for k in DAILY_GUIDE.keys()}
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        current_kcal = 0
         try:
-            df_today = df_log[df_log['날짜'].astype(str).str.contains(today_str, na=False)]
-            for nut in cur_nutri.keys():
-                n_df = df_today[(df_today['구분'] == '식단') & (df_today['항목'] == nut)]
-                cur_nutri[nut] = n_df['수치'].apply(to_numeric).sum()
-            current_kcal = cur_nutri["칼로리"]
+            df_log = load_sheet_data(GID_MAP["Log"])
+            if not df_log.empty:
+                df_today = df_log[df_log['날짜'].astype(str).str.contains(today_str, na=False)]
+                for nut in cur_nutri.keys():
+                    n_df = df_today[(df_today['구분'] == '식단') & (df_today['항목'] == nut)]
+                    cur_nutri[nut] = n_df['수치'].apply(to_numeric).sum()
+                current_kcal = cur_nutri["칼로리"]
         except: pass
 
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        st.subheader("🔥 칼로리 요약")
+        # 칼로리 카드
         rem_kcal = DAILY_GUIDE["칼로리"]["val"] - current_kcal
         st.metric("남은 칼로리", f"{rem_kcal:.0f} kcal", delta=f"-{current_kcal:.0f} 섭취")
         st.progress(min(current_kcal / DAILY_GUIDE["칼로리"]["val"], 1.0))
-    with c2:
-        st.subheader("📊 영양소 상세")
+        
+        st.divider()
+        st.markdown("**영양소 밸런스**")
         for name in ["탄수화물", "단백질", "지방", "나트륨"]:
             val = cur_nutri[name]
             guide = DAILY_GUIDE[name]
-            st.write(f"**{name}**: {val:.1f} / {guide['val']}{guide['unit']}")
+            st.caption(f"{name} ({val:.0f}/{guide['val']}{guide['unit']})")
             st.progress(min(val / guide['val'], 1.0))
 
-    st.divider()
-
-    # 3. [업그레이드] 팻시크릿 데이터 완전 입력 창
-    st.subheader("📝 영양 성분 상세 기록")
-    st.caption("팻시크릿 앱의 수치를 그대로 입력하세요.")
-    
-    with st.form("full_input"):
-        in_w = st.number_input("오늘 체중 (kg / 변동 없으면 유지)", 0.0, 200.0, 125.0, step=0.1)
-        st.markdown("---")
-        
-        # 입력하기 편하게 4열로 배치
-        c_in1, c_in2, c_in3, c_in4 = st.columns(4)
-        with c_in1:
-            in_kcal = st.number_input("칼로리 (kcal)", 0.0, step=10.0)
-            in_carb = st.number_input("탄수화물 (g)", 0.0, step=1.0)
-        with c_in2:
-            in_prot = st.number_input("단백질 (g)", 0.0, step=1.0)
-            in_fat = st.number_input("지방 (g)", 0.0, step=1.0)
-        with c_in3:
-            in_sugar = st.number_input("당류 (g)", 0.0, step=1.0)
-            in_fiber = st.number_input("식이섬유 (g)", 0.0, step=1.0)
-        with c_in4:
-            in_na = st.number_input("나트륨 (mg)", 0.0, step=10.0)
-            in_chol = st.number_input("콜레스테롤 (mg)", 0.0, step=10.0)
-
-        if st.form_submit_button("✅ 모든 데이터 저장"):
-            if in_w > 0 and in_w != 125.0: send_to_sheet("건강", "체중", in_w, corpus="Health")
+        st.divider()
+        st.markdown("**📉 체중 추세**")
+        try:
+            if not df_log.empty:
+                w_df = df_log[(df_log["구분"] == "건강") & (df_log["항목"] == "체중")].copy()
+                if not w_df.empty:
+                    w_df["날짜"] = pd.to_datetime(w_df["날짜"])
+                    w_df["수치"] = w_df["수치"].apply(to_numeric)
+                    st.line_chart(w_df.set_index("날짜")[["수치"]].sort_index(), color="#FF4B4B", height=200)
+        except: pass
             
-            nutri_map = {
-                "칼로리": in_kcal, "탄수화물": in_carb, "단백질": in_prot, "지방": in_fat,
-                "당": in_sugar, "식이섬유": in_fiber, "나트륨": in_na, "콜레스테롤": in_chol
-            }
-            
-            saved_count = 0
-            for key, val in nutri_map.items():
-                if val > 0:
-                    send_to_sheet("식단", key, val, corpus="Health")
-                    saved_count += 1
-            
-            if saved_count > 0:
-                st.success(f"{saved_count}개 항목 저장 완료!")
-                st.rerun()
-            else:
-                st.warning("입력된 내용이 없습니다.")
-
 # === 탭 3: 재고 관리 ===
 elif menu == "재고 관리":
     st.header("📦 식자재 및 생활용품 관리")
+    st.markdown("<style>[data-testid='stHorizontalBlock'] { gap: 2rem; }</style>", unsafe_allow_html=True)
+
     col_left, col_right = st.columns([1, 1])
     
     with col_left:
@@ -275,9 +271,14 @@ elif menu == "재고 관리":
                 {"항목": "나시고랭 소스", "수량": "1팩", "유통기한": "2026-11-20"}, {"항목": "치아씨드/아사이베리", "수량": "보유", "유통기한": "-"},
                 {"항목": "김치 4종", "수량": "보유", "유통기한": "-"}, {"항목": "당근", "수량": "보유", "유통기한": "-"}, {"항목": "감자", "수량": "보유", "유통기한": "-"}
             ])
-        inv_df = st.session_state.inventory.copy()
-        inv_df.index = range(1, len(inv_df) + 1)
-        st.data_editor(inv_df, num_rows="dynamic", use_container_width=True)
+        
+        # [핵심 수정] 수정된 데이터를 session_state에 다시 저장하여 유지시킴
+        st.session_state.inventory = st.data_editor(
+            st.session_state.inventory, 
+            num_rows="dynamic", 
+            use_container_width=True,
+            key="inv_editor" # 키 설정으로 안전성 확보
+        )
 
     with col_right:
         st.subheader("⏰ 생활용품 교체")
@@ -290,14 +291,28 @@ elif menu == "재고 관리":
                 {"품목": "정수기필터", "최근교체일": "2025-12-10", "주기": 120}
             ])
         
-        sup_df = st.session_state.supplies.copy()
-        try:
-            sup_df['최근교체일'] = pd.to_datetime(sup_df['최근교체일'], errors='coerce')
-            if '주기' not in sup_df.columns: sup_df['주기'] = 30
-            sup_df['교체예정일'] = sup_df.apply(lambda x: x['최근교체일'] + pd.Timedelta(days=int(x['주기'])) if pd.notnull(x['최근교체일']) else pd.NaT, axis=1)
-            sup_df['최근교체일'] = sup_df['최근교체일'].dt.strftime('%Y-%m-%d').fillna("-")
-            sup_df['교체예정일'] = sup_df['교체예정일'].dt.strftime('%Y-%m-%d').fillna("-")
-        except: pass
+        # [핵심 수정] 여기도 동일하게 저장 기능 적용
+        edited_supplies = st.data_editor(
+            st.session_state.supplies, 
+            num_rows="dynamic", 
+            use_container_width=True,
+            key="sup_editor"
+        )
+        st.session_state.supplies = edited_supplies
 
-        sup_df.index = range(1, len(sup_df) + 1)
-        st.data_editor(sup_df, num_rows="dynamic", use_container_width=True)
+        # 날짜 계산 로직 (에러 방지 적용)
+        try:
+            calc_df = edited_supplies.copy()
+            calc_df['최근교체일'] = pd.to_datetime(calc_df['최근교체일'], errors='coerce')
+            if '주기' not in calc_df.columns: calc_df['주기'] = 30
+            calc_df['교체예정일'] = calc_df.apply(lambda x: x['최근교체일'] + pd.Timedelta(days=int(x['주기'])) if pd.notnull(x['최근교체일']) else pd.NaT, axis=1)
+            
+            # 계산 결과만 깔끔하게 보여주기 (수정은 위의 표에서 함)
+            st.caption("📅 교체 예정일 자동 계산")
+            st.dataframe(
+                calc_df[['품목', '교체예정일']].assign(
+                    교체예정일=calc_df['교체예정일'].dt.strftime('%Y-%m-%d').fillna("-")
+                ).set_index('품목'),
+                use_container_width=True
+            )
+        except: pass
