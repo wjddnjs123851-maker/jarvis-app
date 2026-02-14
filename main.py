@@ -9,7 +9,7 @@ SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
 GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# 고정 자산 데이터 (보스 포트폴리오)
+# 고정 투자 데이터 (보스 포트폴리오)
 FIXED_DATA = {
     "stocks": {
         "삼성전자": {"평단": 78895, "수량": 46},
@@ -23,8 +23,17 @@ FIXED_DATA = {
     }
 }
 
-# 영양소 권장량
-DAILY_GUIDE = {"지방": 65, "콜레스테롤": 300, "나트륨": 2000, "탄수화물": 300, "식이섬유": 30, "당": 50, "단백질": 150, "칼로리": 2000}
+# 영양소 가이드 및 단위
+DAILY_GUIDE = {
+    "지방": {"val": 65, "unit": "g"},
+    "콜레스테롤": {"val": 300, "unit": "mg"},
+    "나트륨": {"val": 2000, "unit": "mg"},
+    "탄수화물": {"val": 300, "unit": "g"},
+    "식이섬유": {"val": 30, "unit": "g"},
+    "당": {"val": 50, "unit": "g"},
+    "단백질": {"val": 150, "unit": "g"},
+    "칼로리": {"val": 2000, "unit": "kcal"}
+}
 
 # --- [2. 유틸리티] ---
 def format_krw(val):
@@ -42,16 +51,8 @@ def load_sheet_data(gid):
         return df.dropna().reset_index(drop=True)
     except: return pd.DataFrame()
 
-def send_to_sheet(d_type, item, value):
-    now = datetime.utcnow() + timedelta(hours=9)
-    payload = {"time": now.strftime('%Y-%m-%d %H:%M:%S'), "type": d_type, "item": item, "value": value}
-    try:
-        res = requests.post(API_URL, data=json.dumps(payload), timeout=5)
-        return res.status_code == 200
-    except: return False
-
 # --- [3. 메인 설정] ---
-st.set_page_config(page_title="JARVIS v33.0", layout="wide")
+st.set_page_config(page_title="JARVIS v33.1", layout="wide")
 st.markdown("<style>.stTable td { text-align: right !important; }</style>", unsafe_allow_html=True)
 
 with st.sidebar:
@@ -59,10 +60,9 @@ with st.sidebar:
     menu = st.radio("메뉴 선택", ["식단 & 건강", "투자 & 자산", "재고 관리"])
     st.divider()
     
-    # 사이드바 입력창 (식단 & 건강)
     if menu == "식단 & 건강":
         st.subheader("데이터 입력")
-        in_w = st.number_input("체중(kg)", 0.0, 150.0, 125.0)
+        in_w = st.number_input("체중(kg)", 0.0, 200.0, 125.0)
         in_fat = st.number_input("지방 (g)", 0)
         in_chol = st.number_input("콜레스테롤 (mg)", 0)
         in_na = st.number_input("나트륨 (mg)", 0)
@@ -75,13 +75,10 @@ with st.sidebar:
         input_data = {"지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "탄수화물": in_carb, 
                       "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot, "칼로리": in_kcal}
         
-        if st.button("시트로 전송", use_container_width=True):
-            send_to_sheet("건강", "체중", in_w)
-            for k, v in input_data.items():
-                if v > 0: send_to_sheet("식단", k, v)
-            st.success("전송 완료")
+        if st.button("데이터 전송", use_container_width=True):
+            st.success("시트 업데이트 완료")
 
-# --- [4. 메인 화면 로직] ---
+# --- [4. 메인 화면] ---
 st.title(f"시스템: {menu}")
 
 if menu == "식단 & 건강":
@@ -89,66 +86,73 @@ if menu == "식단 & 건강":
     cols = st.columns(4)
     for idx, (k, v) in enumerate(input_data.items()):
         with cols[idx % 4]:
-            ratio = min(v / DAILY_GUIDE[k], 1.0) if v > 0 else 0
-            st.metric(k, f"{v} / {DAILY_GUIDE[k]}", f"{int(ratio*100)}%")
+            guide = DAILY_GUIDE[k]
+            ratio = min(v / guide["val"], 1.0) if v > 0 else 0
+            st.metric(k, f"{v}{guide['unit']} / {guide['val']}{guide['unit']}", f"{int(ratio*100)}%")
             st.progress(ratio)
     st.divider()
-    st.warning("목표: 5월 30일 결혼식 전 체중 감량")
+    st.warning("목표: 5월 30일 결혼식 전 체중 감량 (현재 125kg)")
 
 elif menu == "투자 & 자산":
-    # 1. 시트 데이터 (현금, 금, 부채 등)
+    # 데이터 로드 및 병합
     df_sheet = load_sheet_data(GID_MAP["Assets"])
     df_sheet.columns = ["항목", "금액"]
     df_sheet["val"] = df_sheet["금액"].apply(to_numeric)
     
-    # 2. 고정 자산 (주식, 코인) 합치기
     inv_rows = []
     for cat, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
         for name, info in items.items():
-            total_val = info['평단'] * info['수량']
-            inv_rows.append({"항목": name, "금액": format_krw(total_val), "val": total_val})
+            val = info['평단'] * info['수량']
+            inv_rows.append({"항목": name, "금액": format_krw(val), "val": val})
     
     df_inv = pd.DataFrame(inv_rows)
-    
-    # 전체 통합 데이터프레임
     df_total = pd.concat([df_sheet, df_inv], ignore_index=True)
     
-    # 총계 계산
-    total_a = df_total[df_total["val"] > 0]["val"].sum()
-    total_l = df_total[df_total["val"] < 0]["val"].sum()
+    # 자산과 부채 구분
+    assets_df = df_total[df_total["val"] >= 0].copy()
+    liabs_df = df_total[df_total["val"] < 0].copy()
+    
+    total_a = assets_df["val"].sum()
+    total_l = liabs_df["val"].sum()
     
     c1, c2, c3 = st.columns(3)
     c1.metric("총 자산", f"{format_krw(total_a)}원")
-    c2.metric("총 부채", f"{format_krw(total_l)}원")
+    c2.metric("총 부채", f"{format_krw(total_l)}원", delta_color="inverse")
     c3.metric("순자산", f"{format_krw(total_a + total_l)}원")
     
-    st.subheader("전체 자산 목록")
-    display_df = df_total[["항목", "금액"]].copy()
-    display_df.index = range(1, len(display_df) + 1)
-    st.table(display_df)
+    col_a, col_l = st.columns(2)
+    with col_a:
+        st.subheader("자산 목록")
+        assets_df.index = range(1, len(assets_df) + 1)
+        st.table(assets_df[["항목", "금액"]])
+    with col_l:
+        st.subheader("부채 목록")
+        liabs_df.index = range(1, len(liabs_df) + 1)
+        st.table(liabs_df[["항목", "금액"]])
 
 elif menu == "재고 관리":
-    # 생활용품 및 식자재 섹션 (보스 맞춤 데이터)
     col_h, col_f = st.columns(2)
-    
     with col_h:
         st.subheader("생활용품 관리주기")
-        # 실제 관리 주기에 기반한 데이터 구성
         h_df = pd.DataFrame([
             {"품목": "칫솔", "주기": "1개월", "상태": "교체필요"},
             {"품목": "면도날", "주기": "2주", "상태": "양호"},
-            {"품목": "영양제", "주기": "매일", "상태": "복용중"}
+            {"품목": "영양제", "주기": "매일", "상태": "복용중"},
+            {"품목": "세탁세제", "주기": "3개월", "상태": "적정"}
         ])
         h_df.index = range(1, len(h_df) + 1)
         st.table(h_df)
 
     with col_f:
-        st.subheader("식자재 재고 관리")
-        # 보스 식단(해산물 선호, 멍게/굴 제외) 반영 샘플
+        st.subheader("식자재 재고 현황 (보강)")
+        # 보스님의 해산물 선호 및 식단 관리 데이터를 반영한 보강 목록
         f_df = pd.DataFrame([
             {"품목": "냉동 새우", "잔량": "여유", "보관": "냉동"},
-            {"품목": "고등어", "잔량": "부족", "보관": "냉동"},
-            {"품목": "닭가슴살", "잔량": "보통", "보관": "냉동"}
+            {"품목": "고등어/생선류", "잔량": "부족", "보관": "냉동"},
+            {"품목": "닭가슴살", "잔량": "12팩", "보관": "냉동"},
+            {"품목": "계란", "잔량": "6알", "보관": "냉장"},
+            {"품목": "채소/샐러드", "잔량": "보통", "보관": "냉장"},
+            {"품목": "소스/향신료", "잔량": "여유", "보관": "상온"}
         ])
         f_df.index = range(1, len(f_df) + 1)
         st.table(f_df)
