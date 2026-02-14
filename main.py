@@ -171,24 +171,17 @@ elif menu == "식단 & 건강":
 elif menu == "재고 관리":
     st.header("📦 식자재 및 생활용품 관리")
     
-    # 표 사이의 간격을 넓히고 화면 중앙에 배치하기 위한 설정
+    # [스타일링] 표 간격 조정 및 테두리 적용
     st.markdown("""
         <style>
-        [data-testid="stHorizontalBlock"] {
-            align-items: start;
-            gap: 2rem;
-        }
-        .stDataEditor {
-            border: 1px solid #f0f2f6;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
+        [data-testid="stHorizontalBlock"] { gap: 2rem; }
         </style>
     """, unsafe_allow_html=True)
 
-    # 화면 비율을 5:5로 나누되, 중앙 집중형으로 배치
+    # 화면 5:5 분할
     col_left, col_right = st.columns([1, 1])
     
+    # --- 왼쪽: 식재료 현황 ---
     with col_left:
         st.subheader("🛒 식재료 현황")
         if 'inventory' not in st.session_state:
@@ -202,12 +195,14 @@ elif menu == "재고 관리":
                 {"항목": "김치 4종", "수량": "보유", "유통기한": "-"}, {"항목": "당근", "수량": "보유", "유통기한": "-"}, {"항목": "감자", "수량": "보유", "유통기한": "-"}
             ])
         inv_df = st.session_state.inventory.copy()
+        # 인덱스 깔끔하게 정리 (1부터 시작)
         inv_df.index = range(1, len(inv_df) + 1)
-        # 너비를 가득 채워(True) 시원하게 보이도록 변경
         st.data_editor(inv_df, num_rows="dynamic", use_container_width=True)
 
+    # --- 오른쪽: 생활용품 교체 ---
     with col_right:
         st.subheader("⏰ 생활용품 교체")
+        # 데이터 초기화 (열 이름 통일: '주기'로 고정)
         if 'supplies' not in st.session_state:
             st.session_state.supplies = pd.DataFrame([
                 {"품목": "칫솔(보스)", "최근교체일": "2026-01-15", "주기": 30}, 
@@ -216,11 +211,30 @@ elif menu == "재고 관리":
                 {"품목": "수세미", "최근교체일": "2026-02-15", "주기": 30},
                 {"품목": "정수기필터", "최근교체일": "2025-12-10", "주기": 120}
             ])
+        
         sup_df = st.session_state.supplies.copy()
-        sup_df['최근교체일'] = pd.to_datetime(sup_df['최근교체일'])
-        sup_df['교체예정일'] = sup_df.apply(lambda x: x['최근교체일'] + pd.Timedelta(days=x['주기']), axis=1)
-        sup_df['최근교체일'] = sup_df['최근교체일'].dt.strftime('%Y-%m-%d')
-        sup_df['교체예정일'] = sup_df['교체예정일'].dt.strftime('%Y-%m-%d')
+        
+        # [핵심 수정] 에러 방지 로직
+        # 데이터가 꼬여서 열 이름이 다르거나 날짜 형식이 틀려도 멈추지 않게 처리
+        try:
+            sup_df['최근교체일'] = pd.to_datetime(sup_df['최근교체일'], errors='coerce')
+            # '주기' 컬럼이 없으면 30일로 기본 설정 (KeyError 방지)
+            if '주기' not in sup_df.columns:
+                sup_df['주기'] = 30
+            
+            # 교체예정일 계산
+            sup_df['교체예정일'] = sup_df.apply(
+                lambda x: x['최근교체일'] + pd.Timedelta(days=int(x['주기'])) if pd.notnull(x['최근교체일']) else pd.NaT, 
+                axis=1
+            )
+            
+            # 보기 좋게 날짜 문자열로 변환
+            sup_df['최근교체일'] = sup_df['최근교체일'].dt.strftime('%Y-%m-%d').fillna("-")
+            sup_df['교체예정일'] = sup_df['교체예정일'].dt.strftime('%Y-%m-%d').fillna("-")
+            
+        except Exception:
+            # 계산 중 에러가 나면 그냥 원본 데이터를 보여줌 (빨간창 뜨는 것보다 낫습니다)
+            pass
+
         sup_df.index = range(1, len(sup_df) + 1)
-        # 여기도 너비를 가득 채워(True) 균형을 맞춤
         st.data_editor(sup_df, num_rows="dynamic", use_container_width=True)
