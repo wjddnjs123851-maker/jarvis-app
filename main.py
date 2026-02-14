@@ -5,11 +5,16 @@ import json
 from datetime import datetime
 
 # --- [1. 시스템 설정] ---
+# 보스의 시트 ID 및 탭별 GID 설정
 SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
-GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532", "Health": "123456789"}
+GID_MAP = {
+    "Log": "1716739583",      # finance.csv (입출력 로그)
+    "Assets": "1666800532",   # assets.csv (자산 현황)
+    "Health": "123456789"     # (예비용)
+}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# 데이터 보존
+# 일일 권장 섭취량 가이드
 DAILY_GUIDE = {
     "칼로리": {"val": 2900.0, "unit": "kcal"}, "지방": {"val": 90.0, "unit": "g"},
     "콜레스테롤": {"val": 300.0, "unit": "mg"}, "나트륨": {"val": 2300.0, "unit": "mg"},
@@ -17,6 +22,7 @@ DAILY_GUIDE = {
     "당": {"val": 50.0, "unit": "g"}, "단백질": {"val": 160.0, "unit": "g"}
 }
 
+# 투자 자산 (안정성을 위해 코드 내장 - 추후 시트 연동 가능)
 FIXED_DATA = {
     "stocks": {
         "삼성전자": {"평단": 78895, "수량": 46}, "SK하이닉스": {"평단": 473521, "수량": 6},
@@ -52,18 +58,14 @@ st.markdown("""
     .stTable td { text-align: right !important; }
     [data-testid="stHorizontalBlock"] { gap: 2rem; }
     .stDataEditor { border: 1px solid #f0f2f6; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    /* 회색바 제거 */
     .input-card { background-color: transparent; padding: 0px; border: none; }
-    /* 자산 총계 스타일 */
-    .total-row { font-weight: bold; background-color: #f1f3f5; }
     </style>
 """, unsafe_allow_html=True)
 
-# 한국 시간 및 날씨
+# 날짜 및 날씨
 try:
     kst_now = datetime.now() + pd.Timedelta(hours=9)
     date_str = kst_now.strftime('%Y-%m-%d %H:%M')
-    # 평택 날씨
     w_url = "https://api.open-meteo.com/v1/forecast?latitude=36.99&longitude=127.11&current_weather=true&timezone=auto"
     w_res = requests.get(w_url, timeout=1).json()
     temp = w_res['current_weather']['temperature']
@@ -85,7 +87,6 @@ with st.sidebar:
     
     st.divider()
     
-    # [자산 탭] 입력창 사이드바 배치
     if menu == "투자 & 자산":
         st.subheader("💰 자산 변동 기록")
         with st.form("asset_input_sidebar"):
@@ -107,60 +108,58 @@ if menu == "투자 & 자산":
     st.header("💰 투자 및 종합 자산 관리")
     
     try:
+        # 1. 데이터 로드 (Assets 탭)
         df_assets = load_sheet_data(GID_MAP["Assets"])
         df_log = load_sheet_data(GID_MAP["Log"])
         
-        # 데이터 전처리
+        # [수정] Assets 데이터 정제 (컬럼 개수 에러 방지)
         if not df_assets.empty:
-            df_assets.columns = ["항목", "금액"]
+            # 2번째 컬럼까지만 사용 (항목, 금액 외 불필요한 컬럼 제거)
+            df_assets = df_assets.iloc[:, :2] 
+            df_assets.columns = ["항목", "금액"] 
             df_assets["val"] = df_assets["금액"].apply(to_numeric)
         
-        # 로그 분석 (현금흐름 및 월별 추세)
+        # 2. 로그 분석
         cash_diff, card_debt = 0, 0
         monthly_trend = {} 
 
         if not df_log.empty:
-            df_log.columns = ["날짜", "구분", "항목", "수치"]
+            df_log.columns = ["날짜", "구분", "항목", "수치"] # Log 탭 구조 가정
             for _, row in df_log.iterrows():
                 val = to_numeric(row["수치"])
-                date_ym = str(row["날짜"])[:7] # YYYY-MM
+                date_ym = str(row["날짜"])[:7]
                 
-                # 현재 자산 가감
                 if row["구분"] == "지출":
                     if row["항목"] == "자산이동": cash_diff -= val
                     else: card_debt += val
                 elif row["구분"] == "수입":
                     if row["항목"] != "자산이동": cash_diff += val
                 
-                # 월별 추세 집계
                 if date_ym not in monthly_trend: monthly_trend[date_ym] = {"수입": 0, "지출": 0}
-                if row["구분"] == "수입" and row["항목"] != "자산이동": 
-                    monthly_trend[date_ym]["수입"] += val
-                elif row["구분"] == "지출" and row["항목"] != "자산이동":
-                    monthly_trend[date_ym]["지출"] += val
+                if row["구분"] == "수입" and row["항목"] != "자산이동": monthly_trend[date_ym]["수입"] += val
+                elif row["구분"] == "지출" and row["항목"] != "자산이동": monthly_trend[date_ym]["지출"] += val
 
-        # 주식/코인 합산
+        # 3. 주식/코인 데이터 병합
         inv_rows = []
         for cat, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
             for name, info in items.items(): inv_rows.append({"항목": name, "val": info['평단'] * info['수량']})
         
         df_total = pd.concat([df_assets, pd.DataFrame(inv_rows)], ignore_index=True)
 
-        # 현금 업데이트
+        # 4. 현금 업데이트
         if not df_total.empty:
             cash_idx = df_total[df_total['항목'].str.contains('현금', na=False)].index
             target_idx = cash_idx[0] if not cash_idx.empty else 0
             df_total.at[target_idx, "val"] += cash_diff
 
-        # 카드 부채 추가
         if card_debt > 0: df_total = pd.concat([df_total, pd.DataFrame([{"항목": "카드값(미결제)", "val": -card_debt}])], ignore_index=True)
 
-        # 자산/부채 분리
+        # 5. 분리 및 순자산 계산
         a_df = df_total[df_total["val"] >= 0].copy()
         l_df = df_total[df_total["val"] < 0].copy()
         net_worth = a_df["val"].sum() - abs(l_df["val"].sum())
 
-        # [그래프] 월별 흐름
+        # [그래프]
         st.subheader("📉 월별 자산 흐름")
         if monthly_trend:
             trend_df = pd.DataFrame.from_dict(monthly_trend, orient='index').sort_index()
@@ -169,14 +168,14 @@ if menu == "투자 & 자산":
         
         st.divider()
 
-        # [표] 자산 및 부채 (Total 오류 수정 완료)
+        # [표] 자산 및 부채 (Total 오류 수정)
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("자산 (Assets)")
             if not a_df.empty:
-                # 표시용 데이터프레임 생성 (컬럼 개수 오류 방지)
+                # [핵심 수정] 합계 행을 추가할 때 컬럼 불일치 방지
                 disp_a = a_df[["항목", "val"]].copy()
-                disp_a.loc["Total"] = ["합계", disp_a["val"].sum()] # 마지막 줄 추가
+                disp_a.loc["Total"] = ["합계", disp_a["val"].sum()] 
                 disp_a["금액"] = disp_a["val"].apply(format_krw)
                 st.dataframe(disp_a[["항목", "금액"]], use_container_width=True, hide_index=True)
 
@@ -192,7 +191,7 @@ if menu == "투자 & 자산":
         st.markdown(f"<h2 style='text-align: right; color: #1E90FF;'>💎 순자산: {format_krw(net_worth)}</h2>", unsafe_allow_html=True)
 
     except Exception as e:
-        st.error(f"⚠️ 에러 발생: {e}")
+        st.error(f"⚠️ 데이터 처리 중 문제가 발생했습니다: {e}")
 
 # --- [탭 2] 식단 & 건강 ---
 elif menu == "식단 & 건강":
@@ -201,9 +200,7 @@ elif menu == "식단 & 건강":
     except: d_day = 0
     st.info(f"💍 결혼식까지 D-{d_day} | 현재 체중 125.00kg 기준 감량 모드")
 
-    # 레이아웃 수정: 입력(왼쪽) / 요약(오른쪽)
     col_input, col_summary = st.columns([6, 4])
-
     with col_input:
         st.subheader("📝 영양 성분 상세 기록")
         with st.form("full_input"):
@@ -234,7 +231,6 @@ elif menu == "식단 & 건강":
 
     with col_summary:
         st.subheader("📊 오늘의 요약")
-        # 데이터 집계
         cur_nutri = {k: 0 for k in DAILY_GUIDE.keys()}
         today_str = datetime.now().strftime('%Y-%m-%d')
         current_kcal = 0
@@ -251,14 +247,12 @@ elif menu == "식단 & 건강":
         rem_kcal = DAILY_GUIDE["칼로리"]["val"] - current_kcal
         st.metric("남은 칼로리", f"{rem_kcal:.0f} kcal", delta=f"-{current_kcal:.0f} 섭취")
         st.progress(min(current_kcal / DAILY_GUIDE["칼로리"]["val"], 1.0))
-        
         st.divider()
         for name in ["탄수화물", "단백질", "지방", "나트륨"]:
             val = cur_nutri[name]
             guide = DAILY_GUIDE[name]
             st.caption(f"{name} ({val:.0f}/{guide['val']}{guide['unit']})")
             st.progress(min(val / guide['val'], 1.0))
-        
         st.divider()
         try:
             if not df_log.empty:
@@ -278,7 +272,7 @@ elif menu == "재고 관리":
         st.subheader("🛒 식재료 현황")
         if 'inventory' not in st.session_state:
             st.session_state.inventory = pd.DataFrame([
-                {"항목": "냉동 삼치", "수량": "4팩", "유통기한": "2026-05-10"}, {"항목": "냉동닭다리살", "수량": "3팩단위", "유통기한": "2026-06-01"},
+                {"항목": "냉동 삼치", "수량": "4팩", "유통기한": "2026-05-10"}, {"항목": "냉동닭다리살", "수량": "3팩", "유통기한": "2026-06-01"},
                 {"항목": "단백질 쉐이크", "수량": "9개", "유통기한": "2026-12-30"}, {"항목": "카무트/쌀 혼합", "수량": "2kg", "유통기한": "2026-10-20"},
                 {"항목": "파스타면", "수량": "대량", "유통기한": "-"}, {"항목": "소면", "수량": "1봉", "유통기한": "-"},
                 {"항목": "쿠스쿠스", "수량": "500g", "유통기한": "2027-01-01"}, {"항목": "우동사리", "수량": "3봉", "유통기한": "-"},
@@ -286,8 +280,6 @@ elif menu == "재고 관리":
                 {"항목": "나시고랭 소스", "수량": "1팩", "유통기한": "2026-11-20"}, {"항목": "치아씨드/아사이베리", "수량": "보유", "유통기한": "-"},
                 {"항목": "김치 4종", "수량": "보유", "유통기한": "-"}, {"항목": "당근", "수량": "보유", "유통기한": "-"}, {"항목": "감자", "수량": "보유", "유통기한": "-"}
             ])
-        
-        # 수정사항 즉시 저장
         st.session_state.inventory = st.data_editor(st.session_state.inventory, num_rows="dynamic", use_container_width=True, key="inv_editor")
 
     with col_right:
@@ -303,10 +295,9 @@ elif menu == "재고 관리":
         
         st.session_state.supplies = st.data_editor(st.session_state.supplies, num_rows="dynamic", use_container_width=True, key="sup_editor")
 
-        # 날짜 계산 (KeyError 및 포맷 에러 방지)
         try:
             calc_df = st.session_state.supplies.copy()
-            # 컬럼명 통일 (주기 vs 주기(일))
+            # [핵심 수정] 주기(일)이든 주기든 알아서 찾아서 '주기'로 통일
             if '주기(일)' in calc_df.columns: calc_df.rename(columns={'주기(일)': '주기'}, inplace=True)
             if '주기' not in calc_df.columns: calc_df['주기'] = 30
             
