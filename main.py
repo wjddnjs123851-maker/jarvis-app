@@ -4,16 +4,14 @@ import requests
 import json
 from datetime import datetime, timedelta
 
-# --- [1. 시스템 설정 및 GID 정의] ---
+# --- [1. 마스터 데이터 및 GID 설정] ---
 SPREADSHEET_ID = '1X6ypXRLkHIMOSGuYdNLnzLkVB4xHfpRR'
 GID_MAP = {
     "Log": "1716739583",
     "Finance": "1790876407",
-    "Assets": "1666800532",
-    "Stats": "1178071965"
+    "Assets": "1666800532"
 }
 
-# 마스터 데이터 (고정 수치 및 카테고리)
 FIXED_DATA = {
     "health_target": {"칼로리": 2000, "탄수": 300, "단백": 150, "지방": 65, "당": 50, "나트륨": 2000, "콜레스테롤": 300},
     "stocks": {
@@ -30,12 +28,22 @@ FIXED_DATA = {
         "지출": ["식비(집밥)", "식비(외식)", "식비(배달)", "식비(편의점)", "생활용품", "건강/의료", "기호품", "주거/통신", "교통/차량", "금융/보험", "결혼준비", "경조사", "기타지출"],
         "수입": ["급여", "금융소득", "기타"],
         "자산이동": ["적금/청약 납입", "주식/코인 매수", "대출 원금상환"]
+    },
+    "lifecycle": {
+        "면도날": {"last": "2026-02-06", "period": 21},
+        "칫솔": {"last": "2026-02-06", "period": 90},
+        "이불세탁": {"last": "2026-02-04", "period": 14}
+    },
+    "kitchen": {
+        "단백질": "냉동삼치, 냉동닭다리, 관찰레, 북어채, 단백질쉐이크",
+        "곡물/면": "파스타면, 소면, 쿠스쿠스, 라면, 우동, 쌀/카무트",
+        "신선/기타": "김치4종, 아사이베리, 치아씨드, 향신료, 치즈"
     }
 }
 
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# --- [2. 데이터 로드 및 통신 함수] ---
+# --- [2. 유틸리티 함수] ---
 def send_to_sheet(d_type, item, value):
     now = datetime.utcnow() + timedelta(hours=9)
     payload = {"time": now.strftime('%Y-%m-%d %H:%M:%S'), "type": d_type, "item": item, "value": value}
@@ -48,19 +56,25 @@ def send_to_sheet(d_type, item, value):
 def load_csv_from_sheet(sheet_name):
     gid = GID_MAP.get(sheet_name)
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
-    try:
-        df = pd.read_csv(url)
-        return df
-    except:
-        return pd.DataFrame()
+    try: return pd.read_csv(url)
+    except: return pd.DataFrame()
 
 def get_live_prices():
-    prices = {"stocks": {}, "crypto": {}, "gold": 231345} # 금 시세 수동 보정
-    # 주식/코인 가격 수집 (기존 로직 유지)
+    prices = {"stocks": {}, "crypto": {}, "gold": 231345}
+    for name, info in FIXED_DATA["stocks"].items():
+        try:
+            res = requests.get(f"https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{info['코드']}", timeout=1).json()
+            prices["stocks"][name] = int(res['result']['areas'][0]['datas'][0]['nv'])
+        except: prices["stocks"][name] = info['평단']
+    try:
+        res = requests.get("https://api.upbit.com/v1/ticker?markets=KRW-BTC,KRW-ETH", timeout=1).json()
+        for c in res: prices["crypto"][c['market']] = float(c['trade_price'])
+    except:
+        for k, v in FIXED_DATA["crypto"].items(): prices["crypto"][v['마켓']] = v['평단']
     return prices
 
-# --- [3. 사이드바 제어 창] ---
-st.set_page_config(page_title="JARVIS v19.0", layout="wide")
+# --- [3. 사이드바 제어창 (입력 일원화)] ---
+st.set_page_config(page_title="JARVIS v19.1", layout="wide")
 if 'consumed' not in st.session_state: st.session_state.consumed = {k: 0 for k in FIXED_DATA["health_target"].keys()}
 
 with st.sidebar:
@@ -69,12 +83,21 @@ with st.sidebar:
     st.divider()
     
     if menu == "영양/식단/체중":
+        st.subheader("건강/영양 입력")
         in_w = st.number_input("현재 체중(kg)", 125.0, step=0.1)
         in_kcal = st.number_input("칼로리", 0)
-        # 기타 영양소 입력 (v17.0 동일)
-        if st.button("건강 데이터 시트 전송"):
+        in_carb = st.number_input("탄수", 0)
+        in_prot = st.number_input("단백", 0)
+        in_fat = st.number_input("지방", 0)
+        in_sug = st.number_input("당", 0)
+        in_na = st.number_input("나트륨", 0)
+        in_cho = st.number_input("콜레스테롤", 0)
+        
+        if st.button("건강 데이터 전송"):
             send_to_sheet("체중", "일일체크", in_w)
             send_to_sheet("식단", "칼로리", in_kcal)
+            for k, v in zip(FIXED_DATA["health_target"].keys(), [in_kcal, in_carb, in_prot, in_fat, in_sug, in_na, in_cho]):
+                st.session_state.consumed[k] += v
             st.success("Log 탭 기록 완료")
 
     elif menu == "자산/투자/가계부":
@@ -90,40 +113,52 @@ with st.sidebar:
 # --- [4. 메인 리포트 출력] ---
 st.title(f"자비스 리포트: {menu}")
 
-if menu == "자산/투자/가계부":
-    live = get_live_prices()
-    
-    # 기초 자산(Assets 탭)과 변동 내역(Finance 탭) 로드
-    df_assets = load_csv_from_sheet("Assets")
-    df_finance = load_csv_from_sheet("Finance")
-    
-    st.subheader("실시간 통합 자산 현황")
-    a_rows = []
-    
-    if not df_assets.empty:
-        # 시트에 적힌 기초 자산 리스트 출력
-        for index, row in df_assets.iterrows():
-            # Finance 탭에서 해당 항목의 '자산이동' 누적액 계산 (추후 고도화 예정)
-            a_rows.append({"분류": "금융", "항목": row['항목'], "평가액": f"{row['금액']:,}원", "비고": "기초잔액"})
-
-    # 주식/코인 실시간 가치 합산 (v18.0 로직)
-    for n, i in FIXED_DATA["stocks"].items():
-        curr = live["stocks"].get(n, i['평단'])
-        a_rows.append({"분류": "주식", "항목": n, "평가액": f"{curr * i['수량']:,}원", "수익률": f"{((curr/i['평단'])-1)*100:.2f}%"})
-    
-    for n, i in FIXED_DATA["crypto"].items():
-        curr = live["crypto"].get(i['마켓'], i['평단'])
-        a_rows.append({"분류": "코인", "항목": n, "평가액": f"{int(curr * i['수량']):,}원", "수익률": f"{((curr/i['평단'])-1)*100:.2f}%"})
-
-    df_report = pd.DataFrame(a_rows)
-    df_report.index = range(1, len(df_report) + 1)
-    st.table(df_report)
-
-elif menu == "영양/식단/체중":
-    # 영양 리포트 표 (v17.0 로직)
+if menu == "영양/식단/체중":
+    st.subheader("일일 영양 섭취 현황")
     n_rows = []
     for k, v in st.session_state.consumed.items():
         n_rows.append({"항목": k, "현재": v, "목표": FIXED_DATA["health_target"][k]})
     df_n = pd.DataFrame(n_rows)
     df_n.index = range(1, len(df_n) + 1)
     st.table(df_n)
+
+elif menu == "자산/투자/가계부":
+    live = get_live_prices()
+    df_assets = load_csv_from_sheet("Assets")
+    st.subheader("실시간 통합 자산 현황")
+    a_rows = []
+    if not df_assets.empty:
+        for index, row in df_assets.iterrows():
+            a_rows.append({"분류": "금융", "항목": row['항목'], "평가액": f"{row['금액']:,}원", "비고": "기초잔액"})
+    
+    # 금/주식/코인 실시간 합산
+    g_qty = 16.0 # 4돈 + 1g
+    a_rows.append({"분류": "귀금속", "항목": "순금(16g)", "평가액": f"{int(g_qty * live['gold']):,}원", "비고": "시세반영"})
+    for n, i in FIXED_DATA["stocks"].items():
+        curr = live["stocks"].get(n, i['평단'])
+        a_rows.append({"분류": "주식", "항목": n, "평가액": f"{curr * i['수량']:,}원", "비고": f"{((curr/i['평단'])-1)*100:.2f}%"})
+    for n, i in FIXED_DATA["crypto"].items():
+        curr = live["crypto"].get(i['마켓'], i['평단'])
+        a_rows.append({"분류": "코인", "항목": n, "평가액": f"{int(curr * i['수량']):,}원", "비고": f"{((curr/i['평단'])-1)*100:.2f}%"})
+    
+    df_report = pd.DataFrame(a_rows)
+    df_report.index = range(1, len(df_report) + 1)
+    st.table(df_report)
+
+elif menu == "재고/생활관리":
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("소모품 주기")
+        l_rows = []
+        now_kr = datetime.utcnow() + timedelta(hours=9)
+        for item, info in FIXED_DATA["lifecycle"].items():
+            d_day = (datetime.strptime(info["last"], "%Y-%m-%d") + timedelta(days=info["period"]) - now_kr).days
+            l_rows.append({"항목": item, "상태": f"{d_day}일 남음", "최근": info["last"]})
+        df_l = pd.DataFrame(l_rows)
+        df_l.index = range(1, len(df_l) + 1)
+        st.table(df_l)
+    with col2:
+        st.subheader("주방 재고")
+        df_k = pd.DataFrame([{"카테고리": k, "내용": v} for k, v in FIXED_DATA["kitchen"].items()])
+        df_k.index = range(1, len(df_k) + 1)
+        st.table(df_k)
