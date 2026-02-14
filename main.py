@@ -45,23 +45,32 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [3. 메인 화면 구성] ---
-st.set_page_config(page_title="JARVIS v36.1", layout="wide")
+st.set_page_config(page_title="JARVIS v36.2", layout="wide")
 
+# 스타일 재정의 (회색바 input-card 삭제, 깔끔한 흰색 배경 유지)
 st.markdown("""
     <style>
     .stTable td { text-align: right !important; }
     .total-display { text-align: right; font-size: 1.3em; font-weight: bold; padding: 15px; background: #f1f3f5; border-radius: 5px; margin-top: 5px; }
     .net-wealth { font-size: 2.5em !important; font-weight: bold; color: #1E90FF; text-align: left; margin-top: 25px; border-top: 3px solid #1E90FF; padding-top: 10px; }
-    .input-card { background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 1px solid #dee2e6; margin-bottom: 20px; }
     [data-testid="stHorizontalBlock"] { gap: 2rem; }
     .stDataEditor { border: 1px solid #f0f2f6; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    /* 입력창 배경 회색 박스 제거 */
+    .input-card { background-color: transparent; padding: 0px; border: none; } 
     </style>
 """, unsafe_allow_html=True)
 
-t_c1, t_c2 = st.columns([7, 3])
-with t_c1: st.markdown(f"### {datetime.now().strftime('%Y-%m-%d')} | 🌡️ 8°C ☀️ 맑음")
-with t_c2: st.markdown("<div style='text-align:right;'><b>SYSTEM STATUS: ONLINE (v36.1)</b></div>", unsafe_allow_html=True)
+# 한국 시간(KST) 계산 로직 (서버 시간 + 9시간)
+try:
+    kst_now = datetime.now() + pd.Timedelta(hours=9)
+    date_str = kst_now.strftime('%Y-%m-%d %H:%M') # 분 단위까지 표시
+except:
+    date_str = datetime.now().strftime('%Y-%m-%d')
 
+# 상단 정보 표시 (가짜 날씨 제거, 정확한 한국 시간 표시)
+t_c1, t_c2 = st.columns([7, 3])
+with t_c1: st.markdown(f"### 📅 {date_str} (KST)")
+with t_c2: st.markdown("<div style='text-align:right;'><b>SYSTEM STATUS: ONLINE (v36.2)</b></div>", unsafe_allow_html=True)
 with st.sidebar:
     st.title("JARVIS 제어 센터")
     menu = st.radio("메뉴 선택", ["투자 & 자산", "식단 & 건강", "재고 관리"])
