@@ -4,7 +4,16 @@ import requests
 import json
 from datetime import datetime, timedelta
 
-# --- [1. 마스터 데이터: 보스의 투자 및 자산 정보 고정] ---
+# --- [1. 시스템 설정 및 GID 정의] ---
+SPREADSHEET_ID = '1X6ypXRLkHIMOSGuYdNLnzLkVB4xHfpRR'
+GID_MAP = {
+    "Log": "1716739583",
+    "Finance": "1790876407",
+    "Assets": "1666800532",
+    "Stats": "1178071965"
+}
+
+# 마스터 데이터 (고정 수치 및 카테고리)
 FIXED_DATA = {
     "health_target": {"칼로리": 2000, "탄수": 300, "단백": 150, "지방": 65, "당": 50, "나트륨": 2000, "콜레스테롤": 300},
     "stocks": {
@@ -17,36 +26,16 @@ FIXED_DATA = {
         "BTC": {"평단": 137788139, "수량": 0.00181400, "마켓": "KRW-BTC"},
         "ETH": {"평단": 4243000, "수량": 0.03417393, "마켓": "KRW-ETH"}
     },
-    "assets_base": {
-        "순금(16g)": 3700000, # 대략적 가치, 시세연동 예정
-        "가용현금": 492918,
-        "청년도약계좌": 14700000,
-        "주택청약": 2540000,
-        "전세보증금": 145850000,
-        "전세대출": -100000000,
-        "마이너스통장": -3000000,
-        "학자금대출": -1247270
-    },
     "categories": {
         "지출": ["식비(집밥)", "식비(외식)", "식비(배달)", "식비(편의점)", "생활용품", "건강/의료", "기호품", "주거/통신", "교통/차량", "금융/보험", "결혼준비", "경조사", "기타지출"],
         "수입": ["급여", "금융소득", "기타"],
         "자산이동": ["적금/청약 납입", "주식/코인 매수", "대출 원금상환"]
-    },
-    "lifecycle": {
-        "면도날": {"last": "2026-02-06", "period": 21},
-        "칫솔": {"last": "2026-02-06", "period": 90},
-        "이불세탁": {"last": "2026-02-04", "period": 14}
-    },
-    "kitchen": {
-        "단백질": "냉동삼치, 냉동닭다리, 관찰레, 북어채, 단백질쉐이크",
-        "곡물/면": "파스타면, 소면, 쿠스쿠스, 라면, 우동, 쌀/카무트",
-        "신선/기타": "김치4종, 아사이베리, 치아씨드, 향신료, 치즈"
     }
 }
 
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# --- [2. 유틸리티] ---
+# --- [2. 데이터 로드 및 통신 함수] ---
 def send_to_sheet(d_type, item, value):
     now = datetime.utcnow() + timedelta(hours=9)
     payload = {"time": now.strftime('%Y-%m-%d %H:%M:%S'), "type": d_type, "item": item, "value": value}
@@ -55,13 +44,23 @@ def send_to_sheet(d_type, item, value):
         return True
     except: return False
 
+@st.cache_data(ttl=60)
+def load_csv_from_sheet(sheet_name):
+    gid = GID_MAP.get(sheet_name)
+    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
+    try:
+        df = pd.read_csv(url)
+        return df
+    except:
+        return pd.DataFrame()
+
 def get_live_prices():
-    prices = {"stocks": {}, "crypto": {}, "gold": 231345}
-    # 주식/코인 가격 수집 로직 (v17.0과 동일)
+    prices = {"stocks": {}, "crypto": {}, "gold": 231345} # 금 시세 수동 보정
+    # 주식/코인 가격 수집 (기존 로직 유지)
     return prices
 
-# --- [3. 사이드바 및 메인 제어] ---
-st.set_page_config(page_title="JARVIS v18.1", layout="wide")
+# --- [3. 사이드바 제어 창] ---
+st.set_page_config(page_title="JARVIS v19.0", layout="wide")
 if 'consumed' not in st.session_state: st.session_state.consumed = {k: 0 for k in FIXED_DATA["health_target"].keys()}
 
 with st.sidebar:
@@ -70,26 +69,61 @@ with st.sidebar:
     st.divider()
     
     if menu == "영양/식단/체중":
-        st.subheader("건강 데이터 입력")
-        in_w = st.number_input("체중(kg)", 125.0, step=0.1)
+        in_w = st.number_input("현재 체중(kg)", 125.0, step=0.1)
         in_kcal = st.number_input("칼로리", 0)
-        if st.button("데이터 전송"):
+        # 기타 영양소 입력 (v17.0 동일)
+        if st.button("건강 데이터 시트 전송"):
             send_to_sheet("체중", "일일체크", in_w)
+            send_to_sheet("식단", "칼로리", in_kcal)
             st.success("Log 탭 기록 완료")
 
     elif menu == "자산/투자/가계부":
-        st.subheader("가계부/자산이동 입력")
+        st.subheader("가계부 기록")
         t_type = st.selectbox("구분", ["지출", "수입", "자산이동"])
         t_cat = st.selectbox("카테고리", FIXED_DATA["categories"][t_type])
-        t_memo = st.text_input("메모")
+        t_memo = st.text_input("메모 (항목명)")
         t_val = st.number_input("금액", 0)
-        if st.button("시트 기록"):
+        if st.button("가계부 시트 전송"):
             if send_to_sheet(t_type, f"{t_cat} - {t_memo}", t_val):
-                st.success("Finance 탭 기록 완료")
+                st.success(f"{t_type} 전송 완료")
 
-# --- [4. 리포트 출력] ---
+# --- [4. 메인 리포트 출력] ---
 st.title(f"자비스 리포트: {menu}")
 
 if menu == "자산/투자/가계부":
-    # 자산 리포트 표 출력 (v18.0 로직 유지)
-    st.table(pd.DataFrame([{"항목": k, "금액": f"{v:,}원"} for k, v in FIXED_DATA["assets_base"].items()]))
+    live = get_live_prices()
+    
+    # 기초 자산(Assets 탭)과 변동 내역(Finance 탭) 로드
+    df_assets = load_csv_from_sheet("Assets")
+    df_finance = load_csv_from_sheet("Finance")
+    
+    st.subheader("실시간 통합 자산 현황")
+    a_rows = []
+    
+    if not df_assets.empty:
+        # 시트에 적힌 기초 자산 리스트 출력
+        for index, row in df_assets.iterrows():
+            # Finance 탭에서 해당 항목의 '자산이동' 누적액 계산 (추후 고도화 예정)
+            a_rows.append({"분류": "금융", "항목": row['항목'], "평가액": f"{row['금액']:,}원", "비고": "기초잔액"})
+
+    # 주식/코인 실시간 가치 합산 (v18.0 로직)
+    for n, i in FIXED_DATA["stocks"].items():
+        curr = live["stocks"].get(n, i['평단'])
+        a_rows.append({"분류": "주식", "항목": n, "평가액": f"{curr * i['수량']:,}원", "수익률": f"{((curr/i['평단'])-1)*100:.2f}%"})
+    
+    for n, i in FIXED_DATA["crypto"].items():
+        curr = live["crypto"].get(i['마켓'], i['평단'])
+        a_rows.append({"분류": "코인", "항목": n, "평가액": f"{int(curr * i['수량']):,}원", "수익률": f"{((curr/i['평단'])-1)*100:.2f}%"})
+
+    df_report = pd.DataFrame(a_rows)
+    df_report.index = range(1, len(df_report) + 1)
+    st.table(df_report)
+
+elif menu == "영양/식단/체중":
+    # 영양 리포트 표 (v17.0 로직)
+    n_rows = []
+    for k, v in st.session_state.consumed.items():
+        n_rows.append({"항목": k, "현재": v, "목표": FIXED_DATA["health_target"][k]})
+    df_n = pd.DataFrame(n_rows)
+    df_n.index = range(1, len(df_n) + 1)
+    st.table(df_n)
