@@ -45,9 +45,8 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [3. 메인 화면 구성] ---
-st.set_page_config(page_title="JARVIS v36.2", layout="wide")
+st.set_page_config(page_title="JARVIS v36.3", layout="wide")
 
-# 스타일 재정의 (회색바 input-card 삭제, 깔끔한 흰색 배경 유지)
 st.markdown("""
     <style>
     .stTable td { text-align: right !important; }
@@ -55,22 +54,34 @@ st.markdown("""
     .net-wealth { font-size: 2.5em !important; font-weight: bold; color: #1E90FF; text-align: left; margin-top: 25px; border-top: 3px solid #1E90FF; padding-top: 10px; }
     [data-testid="stHorizontalBlock"] { gap: 2rem; }
     .stDataEditor { border: 1px solid #f0f2f6; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    /* 입력창 배경 회색 박스 제거 */
+    /* 회색바 제거 */
     .input-card { background-color: transparent; padding: 0px; border: none; } 
     </style>
 """, unsafe_allow_html=True)
 
-# 한국 시간(KST) 계산 로직 (서버 시간 + 9시간)
+# 1. 한국 시간 계산
 try:
     kst_now = datetime.now() + pd.Timedelta(hours=9)
-    date_str = kst_now.strftime('%Y-%m-%d %H:%M') # 분 단위까지 표시
+    date_str = kst_now.strftime('%Y-%m-%d %H:%M')
+    
+    # 2. 평택 날씨 가져오기 (Open-Meteo 무료 사용)
+    # 평택 좌표: 위도 36.99, 경도 127.11
+    w_url = "https://api.open-meteo.com/v1/forecast?latitude=36.99&longitude=127.11&current_weather=true&timezone=auto"
+    w_res = requests.get(w_url, timeout=1).json()
+    temp = w_res['current_weather']['temperature']
+    w_code = w_res['current_weather']['weathercode']
+    
+    # 날씨 아이콘 매칭
+    icon = "☀️" if w_code <= 3 else "☁️" if w_code <= 48 else "🌧️" if w_code <= 80 else "❄️"
+    weather_str = f"{icon} {temp}°C"
 except:
     date_str = datetime.now().strftime('%Y-%m-%d')
+    weather_str = "기상 정보 로딩 실패"
 
-# 상단 정보 표시 (가짜 날씨 제거, 정확한 한국 시간 표시)
+# 상단 표시
 t_c1, t_c2 = st.columns([7, 3])
-with t_c1: st.markdown(f"### 📅 {date_str} (KST)")
-with t_c2: st.markdown("<div style='text-align:right;'><b>SYSTEM STATUS: ONLINE (v36.2)</b></div>", unsafe_allow_html=True)
+with t_c1: st.markdown(f"### 📅 {date_str} (KST) | {weather_str} (평택)")
+with t_c2: st.markdown("<div style='text-align:right;'><b>SYSTEM STATUS: ONLINE (v36.3)</b></div>", unsafe_allow_html=True)
 with st.sidebar:
     st.title("JARVIS 제어 센터")
     menu = st.radio("메뉴 선택", ["투자 & 자산", "식단 & 건강", "재고 관리"])
