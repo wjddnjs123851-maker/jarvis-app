@@ -115,7 +115,12 @@ if menu == "투자 & 자산":
             for name, info in items.items(): inv_rows.append({"항목": name, "val": info['평단'] * info['수량']})
         
         df_total = pd.concat([df_assets, pd.DataFrame(inv_rows)], ignore_index=True)
-        if not df_total.empty: df_total.iloc[0, df_total.columns.get_loc("val")] += cash_diff
+        # [수정됨] 무조건 첫 번째가 아니라 '현금'이라는 글자가 들어간 항목을 찾아 자동 차감
+        cash_idx = df_total[df_total['항목'].str.contains('현금', na=False)].index
+        target_idx = cash_idx[0] if not cash_idx.empty else 0
+        
+        if not df_total.empty:
+            df_total.at[target_idx, "val"] += cash_diff
         if card_debt > 0: df_total = pd.concat([df_total, pd.DataFrame([{"항목": "카드값(미결제)", "val": -card_debt}])], ignore_index=True)
 
         a_df, l_df = df_total[df_total["val"] >= 0].copy(), df_total[df_total["val"] < 0].copy()
