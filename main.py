@@ -49,9 +49,9 @@ def load_sheet_data(gid):
     try: return pd.read_csv(url).dropna().reset_index(drop=True)
     except: return pd.DataFrame()
 
-# --- [3. 메인 설정] ---
+# --- [3. 메인 설정 및 스타일] ---
 st.set_page_config(page_title="JARVIS v34.9", layout="wide")
-st.markdown("""<style>.stTable td { text-align: right !important; }.total-box { text-align: right; font-size: 1.2em; font-weight: bold; padding: 10px; border-top: 2px solid #eee; }.net-wealth { font-size: 2.5em !important; font-weight: bold; color: #1E90FF; text-align: left; margin-top: 20px; border-top: 3px solid #1E90FF; padding-top: 10px; }.input-card { background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 1px solid #dee2e6; margin-bottom: 20px; }</style>""", unsafe_allow_html=True)
+st.markdown("""<style>.stTable td { text-align: right !important; }.total-box { text-align: right; font-size: 1.2em; font-weight: bold; padding: 10px; border-top: 2px solid #eee; }.net-wealth { font-size: 2.2em !important; font-weight: bold; color: #1E90FF; text-align: left; margin-top: 20px; border-top: 3px solid #1E90FF; padding-top: 10px; }.input-card { background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 1px solid #dee2e6; margin-bottom: 20px; }</style>""", unsafe_allow_html=True)
 
 with st.sidebar:
     st.title("JARVIS 제어 센터")
@@ -62,13 +62,16 @@ with st.sidebar:
         in_w = st.number_input("체중(kg)", 0.0, 200.0, 125.0, step=0.01, format="%.2f")
         in_kcal = st.number_input("칼로리 (kcal)", 0.0, format="%.2f")
         in_prot = st.number_input("단백질 (g)", 0.0, format="%.2f")
-        if st.button("식단 입력 및 리셋"):
+        # 추가 영양소 입력 (v34.0 복구)
+        in_fat = st.number_input("지방 (g)", 0.0, format="%.2f")
+        in_carb = st.number_input("탄수화물 (g)", 0.0, format="%.2f")
+        if st.button("식단 데이터 전송"):
             send_to_sheet("건강", "체중", in_w)
             send_to_sheet("식단", "칼로리", in_kcal)
             send_to_sheet("식단", "단백질", in_prot)
-            st.success("데이터 전송 완료!"); st.rerun()
+            st.success("전송 완료!"); st.rerun()
 
-# --- [4. 메인 로직] ---
+# --- [4. 메인 화면 로직] ---
 st.title(f"시스템: {menu}")
 
 if menu == "투자 & 자산":
@@ -98,52 +101,57 @@ if menu == "투자 & 자산":
     
     col_a, col_l = st.columns(2)
     with col_a:
-        st.subheader("💰 자산 목록"); a_df["금액"] = a_df["val"].apply(lambda x: f"{format_krw(x)}원")
-        a_df.index = range(1, len(a_df) + 1); st.table(a_df[["항목", "금액"]])
+        st.subheader("💰 자산 목록"); a_df["금액표기"] = a_df["val"].apply(lambda x: f"{format_krw(x)}원")
+        a_df.index = range(1, len(a_df) + 1); st.table(a_df[["항목", "금액표기"]])
         st.markdown(f'<div class="total-box">자산 총계: {format_krw(a_df["val"].sum())}원</div>', unsafe_allow_html=True)
     with col_l:
-        st.subheader("📉 부채 목록"); l_df["금액"] = l_df["val"].apply(lambda x: f"{format_krw(abs(x))}원")
-        l_df.index = range(1, len(l_df) + 1); st.table(l_df[["항목", "금액"]])
+        st.subheader("📉 부채 목록"); l_df["금액표기"] = l_df["val"].apply(lambda x: f"{format_krw(abs(x))}원")
+        l_df.index = range(1, len(l_df) + 1); st.table(l_df[["항목", "금액표기"]])
         st.markdown(f'<div class="total-box" style="color: #ff4b4b;">부채 총계: {format_krw(abs(l_df["val"].sum()))}원</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="net-wealth">종합 순자산: {format_krw(a_df["val"].sum() + l_df["val"].sum())}원</div>', unsafe_allow_html=True)
+    
+    net_val = a_df["val"].sum() + l_df["val"].sum()
+    st.markdown(f'<div class="net-wealth">종합 순자산: {format_krw(net_val)}원</div>', unsafe_allow_html=True)
 
 elif menu == "식단 & 건강":
     st.subheader("🥗 실시간 영양 분석 리포트")
     st.warning(f"🎯 목표: 5월 30일 결혼식 전 체중 감량 (현재 체중: {in_w:.2f}kg)")
-    # 영양 리포트 대시보드 (v34.0 로직)
+    
+    # [복구] 대시보드 메트릭 (스크린샷의 빈 공간을 채움)
+    cur_nutri = {"단백질": in_prot, "칼로리": in_kcal, "지방": in_fat, "탄수화물": in_carb}
+    m_cols = st.columns(len(cur_nutri))
+    for i, (name, val) in enumerate(cur_nutri.items()):
+        guide = DAILY_GUIDE.get(name, {"val": 100, "unit": ""})
+        ratio = min(val / guide["val"], 1.0) if val > 0 else 0
+        with m_cols[i]:
+            st.metric(name, f"{val:.2f}{guide['unit']}", f"{int(ratio*100)}%")
+            st.progress(ratio)
 
 elif menu == "재고 관리":
-    # [복구] 보스 전용 식자재 리스트
     st.subheader("📦 식자재 및 생활용품 통합 관리")
     tab1, tab2 = st.tabs(["🛒 식재료 현황", "⏰ 교체주기 관리"])
     
     with tab1:
         if 'inventory' not in st.session_state:
             st.session_state.inventory = pd.DataFrame([
-                {"분류": "Protein", "항목": "냉동 삼치", "수량": "4", "단위": "팩"},
-                {"분류": "Protein", "항목": "냉동닭다리살", "수량": "3", "단위": "팩(단위)"},
-                {"분류": "Protein", "항목": "단백질 쉐이크", "수량": "9", "단위": "개"},
-                {"분류": "Grains", "항목": "카무트/쌀 혼합", "수량": "2", "단위": "kg"},
-                {"분류": "Grains", "항목": "파스타면", "수량": "대량", "단위": "-"},
-                {"분류": "Grains", "항목": "쿠스쿠스", "수량": "500", "단위": "g"},
-                {"분류": "Grains", "항목": "우동사리", "수량": "3", "단위": "봉(200g)"},
-                {"분류": "Grains", "항목": "라면", "수량": "6", "단위": "봉"},
-                {"분류": "Others", "항목": "토마토 페이스트", "수량": "10", "단위": "캔"},
-                {"분류": "Others", "항목": "나시고랭 소스", "수량": "1", "단위": "팩"},
-                {"분류": "Others", "항목": "김치 4종", "수량": "반포기내외", "단위": "각"},
-                {"분류": "Others", "항목": "당근/감자", "수량": "보유", "단위": "-"}
+                {"분류": "Protein", "항목": "냉동 삼치", "수량": "4팩"},
+                {"분류": "Protein", "항목": "냉동닭다리살", "수량": "3팩단위"},
+                {"분류": "Protein", "항목": "단백질 쉐이크", "수량": "9개"},
+                {"분류": "Grains", "항목": "카무트/쌀 혼합", "수량": "2kg"},
+                {"분류": "Grains", "항목": "파스타면", "수량": "대량"},
+                {"분류": "Grains", "항목": "쿠스쿠스", "수량": "500g"},
+                {"분류": "Others", "항목": "토마토 페이스트", "수량": "10캔"},
+                {"분류": "Others", "항목": "나시고랭 소스", "수량": "1팩"}
             ])
-        edited_inv = st.data_editor(st.session_state.inventory, num_rows="dynamic", use_container_width=True, key="inv_fixed")
+        edited_inv = st.data_editor(st.session_state.inventory, num_rows="dynamic", use_container_width=True, key="inv_v2")
         if st.button("식자재 데이터 저장"):
-            st.session_state.inventory = edited_inv.reset_index(drop=True); st.success("식자재 리스트 저장 완료")
+            st.session_state.inventory = edited_inv.reset_index(drop=True); st.success("저장 완료")
 
     with tab2:
         if 'supplies' not in st.session_state:
             st.session_state.supplies = pd.DataFrame([
                 {"품목": "칫솔", "최근교체": "2026-01-15", "주기(일)": 30},
-                {"품목": "면도날", "최근교체": "2026-02-01", "주기(일)": 14},
-                {"품목": "이불빨래", "최근교체": "2026-02-08", "주기(일)": 14}
+                {"품목": "면도날", "최근교체": "2026-02-01", "주기(일)": 14}
             ])
-        edited_supp = st.data_editor(st.session_state.supplies, num_rows="dynamic", use_container_width=True, key="supp_fixed")
-        if st.button("교체주기 설정 저장"):
-            st.session_state.supplies = edited_supp.reset_index(drop=True); st.success("생활용품 설정 저장 완료")
+        edited_supp = st.data_editor(st.session_state.supplies, num_rows="dynamic", use_container_width=True, key="supp_v2")
+        if st.button("교체주기 저장"):
+            st.session_state.supplies = edited_supp.reset_index(drop=True); st.success("저장 완료")
