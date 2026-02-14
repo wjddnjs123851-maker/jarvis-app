@@ -9,20 +9,10 @@ SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
 GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-FIXED_DATA = {
-    "stocks": {
-        "삼성전자": {"평단": 78895, "수량": 46},
-        "SK하이닉스": {"평단": 473521, "수량": 6},
-        "삼성중공업": {"평단": 16761, "수량": 88},
-        "동성화인텍": {"평단": 22701, "수량": 21}
-    },
-    "crypto": {
-        "BTC": {"평단": 137788139, "수량": 0.00181400},
-        "ETH": {"평단": 4243000, "수량": 0.03417393}
-    },
-    "precious_metals": {
-        "금(Gold)": {"보유량(g)": 0, "평단": 0} # 필요시 업데이트
-    }
+# 일일 권장 섭취량 가이드라인 (보스 전용)
+DAILY_GUIDE = {
+    "지방": 65, "콜레스테롤": 300, "나트륨": 2000, 
+    "탄수화물": 300, "식이섬유": 30, "당": 50, "단백질": 150, "칼로리": 2000
 }
 
 # --- [2. 유틸리티] ---
@@ -40,7 +30,7 @@ def send_to_sheet(d_type, item, value):
         return res.status_code == 200
     except: return False
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=5)
 def load_assets():
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_MAP['Assets']}"
     try:
@@ -49,8 +39,7 @@ def load_assets():
     except: return pd.DataFrame()
 
 # --- [3. 메인 인터페이스 스타일] ---
-st.set_page_config(page_title="JARVIS v32.6", layout="wide")
-# 오른쪽 정렬 스타일 적용
+st.set_page_config(page_title="JARVIS v32.7", layout="wide")
 st.markdown("<style>.stTable td { text-align: right !important; }</style>", unsafe_allow_html=True)
 
 with st.sidebar:
@@ -59,9 +48,7 @@ with st.sidebar:
     st.divider()
     
     if menu == "식단 & 건강":
-        st.subheader("데이터 입력")
-        in_w = st.number_input("체중(kg)", 0.0, 150.0, 125.0)
-        # 보스 요청 순서: 지방, 콜레스테롤, 나트륨, 탄수화물, 식이섬유, 당, 단백질
+        st.subheader("실시간 섭취 분석")
         in_fat = st.number_input("지방 (g)", 0)
         in_chol = st.number_input("콜레스테롤 (mg)", 0)
         in_na = st.number_input("나트륨 (mg)", 0)
@@ -71,48 +58,65 @@ with st.sidebar:
         in_prot = st.number_input("단백질 (g)", 0)
         in_kcal = st.number_input("칼로리 (kcal)", 0)
         
+        # 실시간 상태 표시
+        input_data = {"지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "탄수화물": in_carb, 
+                      "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot, "칼로리": in_kcal}
+        
+        for k, v in input_data.items():
+            if v > 0:
+                ratio = min(v / DAILY_GUIDE[k], 1.0)
+                st.caption(f"{k}: {v} / {DAILY_GUIDE[k]}")
+                st.progress(ratio)
+        
         if st.button("시트로 전송", use_container_width=True):
-            send_to_sheet("건강", "체중", in_w)
-            d_map = {"지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "탄수화물": in_carb, 
-                     "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot, "칼로리": in_kcal}
-            for k, v in d_map.items():
+            for k, v in input_data.items():
                 if v > 0: send_to_sheet("식단", k, v)
-            st.success("완료")
+            st.success("전송 완료")
 
 # --- [4. 메인 화면] ---
 st.title(f"시스템: {menu}")
 
 if menu == "투자 & 자산":
-    # 1. 시트 기반 자산 (현금, 금, 부채 등)
     df_raw = load_assets()
-    st.subheader("현금 및 기타 자산 현황")
     if not df_raw.empty:
-        df_display = df_raw.copy()
-        df_display.columns = ["항목", "금액"]
-        df_display["금액"] = df_display["금액"].apply(format_krw)
+        # 데이터 정리 및 총계 계산
+        df_raw.columns = ["항목", "금액"]
+        df_raw["numeric"] = df_raw["금액"].apply(lambda x: int(float(str(x).replace(',', '').replace('원', '').strip())))
+        
+        # 자산/부채 분리 (금액이 마이너스면 부채로 간주하거나 항목 이름으로 판별 가능)
+        assets = df_raw[df_raw["numeric"] >= 0]
+        liabilities = df_raw[df_raw["numeric"] < 0]
+        
+        total_asset = assets["numeric"].sum()
+        total_liab = liabilities["numeric"].sum()
+        
+        st.subheader("자산 및 부채 상세")
+        df_display = df_raw[["항목", "금액"]].copy()
+        df_display.index = range(1, len(df_display) + 1) # 순번 1부터 시작
         st.table(df_display)
-    
-    # 2. 투자 자산 (주식/코인)
-    st.subheader("주식 및 코인 현황")
-    inv_data = []
-    for category, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
-        for name, info in items.items():
-            value = info['평단'] * info['수량']
-            inv_data.append({"분류": category, "항목": name, "평가액": format_krw(value)})
-    
-    st.table(pd.DataFrame(inv_data))
-
-elif menu == "식단 & 건강":
-    st.info("사이드바에서 데이터를 입력하면 시트에 기록됩니다.")
-    # 향후 시트에서 최근 7일 데이터를 불러와 요약 표를 보여주는 기능을 추가할 수 있습니다.
+        
+        # 하단 총계 요약
+        st.divider()
+        c1, c2, c3 = st.columns(3)
+        c1.metric("자산 총계", format_krw(total_asset))
+        c2.metric("부채 총계", format_krw(total_liab))
+        c3.metric("순자산", format_krw(total_asset + total_liab))
 
 elif menu == "재고 관리":
-    st.subheader("생활용품 및 식자재 재고")
-    # 기본 틀 구성
-    stock_df = pd.DataFrame([
-        {"카테고리": "주방", "품목": "쌀", "잔량": "적정", "메모": "-"},
-        {"카테고리": "욕실", "품목": "샴푸", "잔량": "부족", "메모": "구매 필요"},
-        {"카테고리": "건강", "품목": "닭가슴살", "잔량": "여유", "메모": "냉동실 확인"}
+    # 1. 생활용품 관리주기
+    st.subheader("생활용품 관리주기")
+    household_df = pd.DataFrame([
+        {"품목": "세탁세제", "교체/구매주기": "3개월", "최근교체": "2026-01-10", "상태": "양호"},
+        {"품목": "칫솔", "교체/구매주기": "1개월", "최근교체": "2026-01-25", "상태": "교체예정"},
     ])
-    st.table(stock_df)
-    st.caption("※ 재고 데이터는 '재고' 시트와 연동하여 관리할 수 있도록 확장이 가능합니다.")
+    household_df.index = range(1, len(household_df) + 1)
+    st.table(household_df)
+
+    # 2. 식자재 관리
+    st.subheader("식자재 재고 현황")
+    food_df = pd.DataFrame([
+        {"품목": "닭가슴살", "유통기한": "2026-05-30", "잔량": "10팩", "보관": "냉동"},
+        {"품목": "계란", "유통기한": "2026-02-25", "잔량": "5알", "보관": "냉장"},
+    ])
+    food_df.index = range(1, len(food_df) + 1)
+    st.table(food_df)
