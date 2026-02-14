@@ -253,14 +253,19 @@ elif menu == "식단 & 건강":
         except: pass
             
 # === 탭 3: 재고 관리 ===
+# === 탭 3: 재고 관리 (데이터 수정 유지 기능 강화) ===
 elif menu == "재고 관리":
     st.header("📦 식자재 및 생활용품 관리")
+    
+    # 스타일링
     st.markdown("<style>[data-testid='stHorizontalBlock'] { gap: 2rem; }</style>", unsafe_allow_html=True)
 
     col_left, col_right = st.columns([1, 1])
     
+    # --- [왼쪽] 식재료 현황 ---
     with col_left:
         st.subheader("🛒 식재료 현황")
+        # 1. 초기 데이터가 없으면 생성 (한 번만 실행됨)
         if 'inventory' not in st.session_state:
             st.session_state.inventory = pd.DataFrame([
                 {"항목": "냉동 삼치", "수량": "4팩", "유통기한": "2026-05-10"}, {"항목": "냉동닭다리살", "수량": "3팩단위", "유통기한": "2026-06-01"},
@@ -272,14 +277,17 @@ elif menu == "재고 관리":
                 {"항목": "김치 4종", "수량": "보유", "유통기한": "-"}, {"항목": "당근", "수량": "보유", "유통기한": "-"}, {"항목": "감자", "수량": "보유", "유통기한": "-"}
             ])
         
-        # [핵심 수정] 수정된 데이터를 session_state에 다시 저장하여 유지시킴
-        st.session_state.inventory = st.data_editor(
+        # 2. [핵심] 편집된 데이터를 변수에 담고, 다시 session_state에 저장
+        edited_inv = st.data_editor(
             st.session_state.inventory, 
             num_rows="dynamic", 
             use_container_width=True,
-            key="inv_editor" # 키 설정으로 안전성 확보
+            key="inv_editor" # 고유 키값 필수
         )
+        # 3. 수정 사항을 즉시 기억장치에 반영
+        st.session_state.inventory = edited_inv
 
+    # --- [오른쪽] 생활용품 교체 ---
     with col_right:
         st.subheader("⏰ 생활용품 교체")
         if 'supplies' not in st.session_state:
@@ -291,28 +299,33 @@ elif menu == "재고 관리":
                 {"품목": "정수기필터", "최근교체일": "2025-12-10", "주기": 120}
             ])
         
-        # [핵심 수정] 여기도 동일하게 저장 기능 적용
-        edited_supplies = st.data_editor(
+        # 여기도 똑같이 수정 사항 저장 로직 적용
+        edited_sup = st.data_editor(
             st.session_state.supplies, 
             num_rows="dynamic", 
             use_container_width=True,
             key="sup_editor"
         )
-        st.session_state.supplies = edited_supplies
+        st.session_state.supplies = edited_sup
 
-        # 날짜 계산 로직 (에러 방지 적용)
+        # 저장된 최신 데이터로 날짜 계산
         try:
-            calc_df = edited_supplies.copy()
+            calc_df = edited_sup.copy()
             calc_df['최근교체일'] = pd.to_datetime(calc_df['최근교체일'], errors='coerce')
             if '주기' not in calc_df.columns: calc_df['주기'] = 30
-            calc_df['교체예정일'] = calc_df.apply(lambda x: x['최근교체일'] + pd.Timedelta(days=int(x['주기'])) if pd.notnull(x['최근교체일']) else pd.NaT, axis=1)
             
-            # 계산 결과만 깔끔하게 보여주기 (수정은 위의 표에서 함)
-            st.caption("📅 교체 예정일 자동 계산")
+            calc_df['교체예정일'] = calc_df.apply(
+                lambda x: x['최근교체일'] + pd.Timedelta(days=int(x['주기'])) if pd.notnull(x['최근교체일']) else pd.NaT, 
+                axis=1
+            )
+            
+            # 보기 좋게 날짜만 뽑아서 보여주기 (수정 불가, 조회용)
+            st.caption("📅 교체 예정일 (자동 계산)")
+            display_df = calc_df[['품목', '교체예정일']].copy()
+            display_df['교체예정일'] = display_df['교체예정일'].dt.strftime('%Y-%m-%d').fillna("-")
+            
             st.dataframe(
-                calc_df[['품목', '교체예정일']].assign(
-                    교체예정일=calc_df['교체예정일'].dt.strftime('%Y-%m-%d').fillna("-")
-                ).set_index('품목'),
+                display_df.set_index('품목'),
                 use_container_width=True
             )
         except: pass
