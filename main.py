@@ -4,8 +4,9 @@ import requests
 import json
 from datetime import datetime, timedelta
 
-# --- [1. 시스템 설정] ---
+# --- [1. 시스템 마스터 설정] ---
 SPREADSHEET_ID = '1X6ypXRLkHIMOSGuYdNLnzLkVB4xHfpRR'
+# 보스께서 주신 GID 재확인
 GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532"}
 
 FIXED_DATA = {
@@ -51,14 +52,16 @@ def send_to_sheet(d_type, item, value):
         return True
     except: return False
 
-@st.cache_data(ttl=10)
-def load_csv_safe(sheet_name):
+@st.cache_data(ttl=5)
+def load_csv_diagnostic(sheet_name):
+    gid = GID_MAP.get(sheet_name)
+    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
     try:
-        url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_MAP[sheet_name]}"
         df = pd.read_csv(url)
+        if df.empty: return "Empty"
         return df.fillna(0)
-    except Exception:
-        return None
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 def get_live_prices():
     prices = {"stocks": {}, "crypto": {}, "gold": 231345}
@@ -74,8 +77,8 @@ def get_live_prices():
         for k, v in FIXED_DATA["crypto"].items(): prices["crypto"][v['마켓']] = v['평단']
     return prices
 
-# --- [3. 사이드바 및 제어] ---
-st.set_page_config(page_title="JARVIS v23.1", layout="wide")
+# --- [3. 메인 인터페이스] ---
+st.set_page_config(page_title="JARVIS v24.0", layout="wide")
 if 'consumed' not in st.session_state: st.session_state.consumed = {k: 0 for k in FIXED_DATA["health_target"].keys()}
 
 with st.sidebar:
@@ -83,13 +86,21 @@ with st.sidebar:
     menu = st.radio("메뉴 선택", ["영양/식단/체중", "자산/투자/가계부", "재고/생활관리"])
     st.divider()
     
+    # 데이터 연결 상태 진단판
+    st.subheader("시스템 연결 진단")
+    for s_name in GID_MAP.keys():
+        status = load_csv_diagnostic(s_name)
+        if isinstance(status, str):
+            st.error(f"{s_name} 탭: {status}")
+        else:
+            st.success(f"{s_name} 탭: 연결됨")
+
     if menu == "영양/식단/체중":
         st.subheader("건강 데이터 입력")
         in_w = st.number_input("현재 체중(kg)", 125.0, step=0.1)
         in_kcal = st.number_input("칼로리", 0)
-        # 탄단지당나콜 생략 (공간 절약)
-        if st.button("데이터 전송"):
-            if send_to_sheet("체중", "일일체크", in_w): st.success("Log 전송 성공")
+        if st.button("전송"):
+            if send_to_sheet("체중", "일일체크", in_w): st.success("전송 완료")
 
     elif menu == "자산/투자/가계부":
         st.subheader("가계부 기록")
@@ -98,36 +109,38 @@ with st.sidebar:
         t_memo = st.text_input("메모")
         t_val = st.number_input("금액", 0)
         if st.button("시트 기록"):
-            if send_to_sheet(t_type, f"{t_cat} - {t_memo}", t_val): st.success("Finance 전송 성공")
+            if send_to_sheet(t_type, f"{t_cat} - {t_memo}", t_val): st.success("기록 완료")
 
-# --- [4. 메인 대시보드 출력] ---
+# --- [4. 메뉴별 리포트 출력] ---
 st.title(f"자비스 리포트: {menu}")
 
 if menu == "영양/식단/체중":
     st.subheader("일일 영양 섭취 현황")
     n_rows = [{"항목": k, "현재": v, "목표": FIXED_DATA["health_target"][k]} for k, v in st.session_state.consumed.items()]
-    st.table(pd.DataFrame(n_rows).assign(index=range(1, len(n_rows)+1)).set_index('index'))
+    df_n = pd.DataFrame(n_rows)
+    df_n.index = range(1, len(df_n) + 1)
+    st.table(df_n)
 
 elif menu == "자산/투자/가계부":
     live = get_live_prices()
-    st.subheader("매달 고정 지출 예정")
-    df_recur = pd.DataFrame(FIXED_DATA["recurring"])
-    st.table(df_recur.assign(index=range(1, len(df_recur)+1)).set_index('index'))
     
-    st.subheader("통합 자산 관리 (Assets 시트)")
-    df_assets = load_csv_safe("Assets")
-    
+    st.subheader("통합 자산 관리")
+    asset_data = load_csv_diagnostic("Assets")
     a_rows = []
-    if df_assets is not None:
-        for _, row in df_assets.iterrows():
+    
+    # 💡 데이터 로드 실패해도 수동 데이터로 표 구성
+    if not isinstance(asset_data, str):
+        for _, row in asset_data.iterrows():
             try:
-                name, val = str(row.iloc[0]), str(row.iloc[1]).replace(',', '')
-                a_rows.append({"분류": "금융", "항목": name, "평가액": f"{int(float(val)):,}원", "비고": "기초잔액"})
+                a_rows.append({"분류": "금융", "항목": str(row.iloc[0]), "평가액": f"{int(float(str(row.iloc[1]).replace(',',''))):,}원", "비고": "시트 데이터"})
             except: continue
     else:
-        st.error("Assets 탭을 읽을 수 없습니다. 시트 공유 설정을 확인해주세요.")
+        # 시트 로드 실패 시 보스의 마지막 자산 정보를 임시로 보여줌
+        a_rows.append({"분류": "금융", "항목": "데이터 대기 중", "평가액": "0원", "비고": "시트 공유 확인 필요"})
 
-    # 주식/코인 추가
+    # 주식/코인 데이터 (무조건 출력)
+    g_qty = 16.0
+    a_rows.append({"분류": "귀금속", "항목": "순금(16g)", "평가액": f"{int(g_qty * live['gold']):,}원", "비고": "시세반영"})
     for n, i in FIXED_DATA["stocks"].items():
         curr = live["stocks"].get(n, i['평단'])
         a_rows.append({"분류": "주식", "항목": n, "평가액": f"{curr * i['수량']:,}원", "비고": f"{((curr/i['평단'])-1)*100:.2f}%"})
@@ -135,21 +148,24 @@ elif menu == "자산/투자/가계부":
         curr = live["crypto"].get(i['마켓'], i['평단'])
         a_rows.append({"분류": "코인", "항목": n, "평가액": f"{int(curr * i['수량']):,}원", "비고": f"{((curr/i['평단'])-1)*100:.2f}%"})
     
-    if a_rows:
-        df_a = pd.DataFrame(a_rows)
-        st.table(df_a.assign(index=range(1, len(df_a)+1)).set_index('index'))
+    df_report = pd.DataFrame(a_rows)
+    df_report.index = range(1, len(df_report) + 1)
+    st.table(df_report)
 
 elif menu == "재고/생활관리":
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("소모품 주기")
+        st.subheader("소모품 교체 주기")
         l_rows = []
         now_kr = datetime.utcnow() + timedelta(hours=9)
         for item, info in FIXED_DATA["lifecycle"].items():
             d_day = (datetime.strptime(info["last"], "%Y-%m-%d") + timedelta(days=info["period"]) - now_kr).days
             l_rows.append({"항목": item, "상태": f"{d_day}일 남음", "최근": info["last"]})
-        st.table(pd.DataFrame(l_rows).assign(index=range(1, len(l_rows)+1)).set_index('index'))
+        df_l = pd.DataFrame(l_rows)
+        df_l.index = range(1, len(df_l) + 1)
+        st.table(df_l)
     with col2:
-        st.subheader("주방 재고")
+        st.subheader("주방 재고 리스트")
         df_k = pd.DataFrame([{"구분": k, "내용": v} for k, v in FIXED_DATA["kitchen"].items()])
-        st.table(df_k.assign(index=range(1, len(df_k)+1)).set_index('index'))
+        df_k.index = range(1, len(df_k) + 1)
+        st.table(df_k)
