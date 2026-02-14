@@ -2,42 +2,35 @@ import streamlit as st
 import pandas as pd
 import requests
 import json
-import plotly.express as px
 from datetime import datetime, timedelta
 
-# --- [1. 시스템 설정 및 상수] ---
+# --- [1. 시스템 설정] ---
 SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
 GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
 FIXED_DATA = {
-    "health_target": {"칼로리": 2000, "지방": 65, "탄수화물": 300, "단백질": 150},
     "stocks": {
-        "동성화인텍": {"평단": 22701, "수량": 21},
-        "삼성중공업": {"평단": 16761, "수량": 88},
+        "삼성전자": {"평단": 78895, "수량": 46},
         "SK하이닉스": {"평단": 473521, "수량": 6},
-        "삼성전자": {"평단": 78895, "수량": 46}
+        "삼성중공업": {"평단": 16761, "수량": 88},
+        "동성화인텍": {"평단": 22701, "수량": 21}
     },
     "crypto": {
         "BTC": {"평단": 137788139, "수량": 0.00181400},
         "ETH": {"평단": 4243000, "수량": 0.03417393}
     },
-    "recurring": [
-        {"항목": "임대료/대출이자", "금액": 524900},
-        {"항목": "고정비(통신/보험/구독)", "금액": 300660},
-        {"항목": "청년도약계좌", "금액": 700000}
-    ]
+    "precious_metals": {
+        "금(Gold)": {"보유량(g)": 0, "평단": 0} # 필요시 업데이트
+    }
 }
 
-# --- [2. 핵심 유틸리티] ---
-def to_numeric(val):
-    """문자열 숫자를 정수로 변환 (쉼표, 단위 제거)"""
-    try:
-        return int(float(str(val).replace(',', '').replace('원', '').strip()))
-    except: return 0
-
+# --- [2. 유틸리티] ---
 def format_krw(val):
-    return f"{int(val):,}"
+    try:
+        n = int(float(str(val).replace(',', '').replace('원', '').strip()))
+        return f"{n:,}원"
+    except: return "0원"
 
 def send_to_sheet(d_type, item, value):
     now = datetime.utcnow() + timedelta(hours=9)
@@ -47,90 +40,79 @@ def send_to_sheet(d_type, item, value):
         return res.status_code == 200
     except: return False
 
-@st.cache_data(ttl=60)
-def load_sheet_data(gid):
-    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
+@st.cache_data(ttl=10)
+def load_assets():
+    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_MAP['Assets']}"
     try:
         df = pd.read_csv(url)
-        return df.dropna(subset=[df.columns[0]])
+        return df.dropna().reset_index(drop=True)
     except: return pd.DataFrame()
 
-# --- [3. 메인 레이아웃 및 스타일] ---
-st.set_page_config(page_title="JARVIS v32.5", layout="wide", initial_sidebar_state="expanded")
-st.markdown("""<style>
-    .main { background-color: #f8f9fa; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-</style>""", unsafe_allow_html=True)
+# --- [3. 메인 인터페이스 스타일] ---
+st.set_page_config(page_title="JARVIS v32.6", layout="wide")
+# 오른쪽 정렬 스타일 적용
+st.markdown("<style>.stTable td { text-align: right !important; }</style>", unsafe_allow_html=True)
 
-# --- [4. 사이드바 제어판] ---
 with st.sidebar:
-    st.title("🤖 JARVIS OS")
-    menu = st.radio("모듈 선택", ["📊 투자 & 자산", "🥗 식단 & 건강", "📦 재고 관리"])
+    st.title("JARVIS 제어 센터")
+    menu = st.radio("메뉴 선택", ["식단 & 건강", "투자 & 자산", "재고 관리"])
     st.divider()
     
-    if menu == "🥗 식단 & 건강":
-        st.subheader("Daily 로그 입력")
-        w_col, k_col = st.columns(2)
-        in_w = w_col.number_input("체중(kg)", 0.0, 150.0, 125.0, step=0.1)
-        in_kcal = k_col.number_input("칼로리", 0, 5000, 0)
+    if menu == "식단 & 건강":
+        st.subheader("데이터 입력")
+        in_w = st.number_input("체중(kg)", 0.0, 150.0, 125.0)
+        # 보스 요청 순서: 지방, 콜레스테롤, 나트륨, 탄수화물, 식이섬유, 당, 단백질
+        in_fat = st.number_input("지방 (g)", 0)
+        in_chol = st.number_input("콜레스테롤 (mg)", 0)
+        in_na = st.number_input("나트륨 (mg)", 0)
+        in_carb = st.number_input("탄수화물 (g)", 0)
+        in_fiber = st.number_input("식이섬유 (g)", 0)
+        in_sugar = st.number_input("당 (g)", 0)
+        in_prot = st.number_input("단백질 (g)", 0)
+        in_kcal = st.number_input("칼로리 (kcal)", 0)
         
-        with st.expander("세부 영양소 입력"):
-            c1, c2 = st.columns(2)
-            in_fat = c1.number_input("지방(g)", 0)
-            in_na = c1.number_input("나트륨(mg)", 0)
-            in_fiber = c1.number_input("식이섬유(g)", 0)
-            in_prot = c2.number_input("단백질(g)", 0)
-            in_carb = c2.number_input("탄수화물(g)", 0)
-            in_sugar = c2.number_input("당(g)", 0)
-        
-        if st.button("데이터 동기화", use_container_width=True, type="primary"):
-            with st.spinner("전송 중..."):
-                success = True
-                success &= send_to_sheet("건강", "체중", in_w)
-                inputs = {"칼로리": in_kcal, "지방": in_fat, "나트륨": in_na, "단백질": in_prot, "탄수화물": in_carb}
-                for k, v in inputs.items():
-                    if v > 0: success &= send_to_sheet("식단", k, v)
-                if success: st.success("시트 업데이트 완료!")
+        if st.button("시트로 전송", use_container_width=True):
+            send_to_sheet("건강", "체중", in_w)
+            d_map = {"지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "탄수화물": in_carb, 
+                     "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot, "칼로리": in_kcal}
+            for k, v in d_map.items():
+                if v > 0: send_to_sheet("식단", k, v)
+            st.success("완료")
 
-# --- [5. 메인 대시보드] ---
-st.title(f"Core System: {menu}")
+# --- [4. 메인 화면] ---
+st.title(f"시스템: {menu}")
 
-if menu == "📊 투자 & 자산":
-    # 상단 요약 지표
-    asset_df = load_sheet_data(GID_MAP["Assets"])
-    cash_total = sum(asset_df.iloc[:, 1].apply(to_numeric)) if not asset_df.empty else 0
+if menu == "투자 & 자산":
+    # 1. 시트 기반 자산 (현금, 금, 부채 등)
+    df_raw = load_assets()
+    st.subheader("현금 및 기타 자산 현황")
+    if not df_raw.empty:
+        df_display = df_raw.copy()
+        df_display.columns = ["항목", "금액"]
+        df_display["금액"] = df_display["금액"].apply(format_krw)
+        st.table(df_display)
     
-    # 투자 자산 계산
-    inv_rows = []
-    for name, info in {**FIXED_DATA["stocks"], **FIXED_DATA["crypto"]}.items():
-        val = info['평단'] * info['수량']
-        inv_rows.append({"항목": name, "평가액": val, "유형": "투자"})
+    # 2. 투자 자산 (주식/코인)
+    st.subheader("주식 및 코인 현황")
+    inv_data = []
+    for category, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
+        for name, info in items.items():
+            value = info['평단'] * info['수량']
+            inv_data.append({"분류": category, "항목": name, "평가액": format_krw(value)})
     
-    inv_total = sum(row['평가액'] for row in inv_rows)
-    
-    m1, m2, m3 = st.columns(3)
-    m1.metric("총 자산(추정)", f"{format_krw(cash_total + inv_total)}원")
-    m2.metric("보유 현금", f"{format_krw(cash_total)}원")
-    m3.metric("투자 비중", f"{(inv_total/(cash_total+inv_total+1)*100):.1f}%")
+    st.table(pd.DataFrame(inv_data))
 
-    
+elif menu == "식단 & 건강":
+    st.info("사이드바에서 데이터를 입력하면 시트에 기록됩니다.")
+    # 향후 시트에서 최근 7일 데이터를 불러와 요약 표를 보여주는 기능을 추가할 수 있습니다.
 
-    # 자산 구성 차트 및 상세 표
-    col_left, col_right = st.columns([1, 1])
-    
-    with col_left:
-        st.subheader("자산 포트폴리오")
-        plot_data = pd.DataFrame([{"유형": "현금/금융", "금액": cash_total}, {"유형": "투자자산", "금액": inv_total}])
-        fig = px.pie(plot_data, values='금액', names='유형', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col_right:
-        st.subheader("상세 보유 내역")
-        # 가독성을 위해 데이터프레임 정리
-        display_inv = pd.DataFrame(inv_rows)
-        display_inv['평가액'] = display_inv['평가액'].apply(format_krw)
-        st.dataframe(display_inv, use_container_width=True, hide_index=True)
-
-elif menu == "🥗 식단 & 건강":
-    st.info("오늘의 권장 섭취량 대비 달성률을 시각화할 예정입니다. (데이터 로딩 중)")
-    # (여기에 식단 로그 시트 데이터를 가져와서 시각화하는 로직 추가 가능)
+elif menu == "재고 관리":
+    st.subheader("생활용품 및 식자재 재고")
+    # 기본 틀 구성
+    stock_df = pd.DataFrame([
+        {"카테고리": "주방", "품목": "쌀", "잔량": "적정", "메모": "-"},
+        {"카테고리": "욕실", "품목": "샴푸", "잔량": "부족", "메모": "구매 필요"},
+        {"카테고리": "건강", "품목": "닭가슴살", "잔량": "여유", "메모": "냉동실 확인"}
+    ])
+    st.table(stock_df)
+    st.caption("※ 재고 데이터는 '재고' 시트와 연동하여 관리할 수 있도록 확장이 가능합니다.")
