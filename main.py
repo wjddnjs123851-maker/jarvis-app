@@ -171,7 +171,7 @@ elif menu == "식단 & 건강":
 elif menu == "재고 관리":
     st.header("📦 식자재 및 생활용품 관리")
     
-    # 1. 식재료 현황 (텍스트 길이에 맞춰 표 너비 축소)
+    # 1. 식재료 현황 (여백 최적화)
     st.subheader("🛒 식재료 현황")
     if 'inventory' not in st.session_state:
         st.session_state.inventory = pd.DataFrame([
@@ -186,30 +186,31 @@ elif menu == "재고 관리":
     
     inv_df = st.session_state.inventory.copy()
     inv_df.index = range(1, len(inv_df) + 1)
-    
-    # use_container_width=False로 설정하여 휑한 여백 제거
+    # use_container_width=False로 설정하여 글자 길이에 맞춰 표 너비 축소
     st.data_editor(inv_df, num_rows="dynamic", use_container_width=False)
     
     st.divider()
     
-    # 2. 생활용품 교체 (교체예정일 추가 및 너비 축소)
+    # 2. 생활용품 교체 (교체예정일 계산 및 오류 수정)
     st.subheader("⏰ 생활용품 교체")
     if 'supplies' not in st.session_state:
         st.session_state.supplies = pd.DataFrame([
-            {"품목": "칫솔", "최근교체일": "2026-02-15", "주기(일)": 30}, 
-            {"품목": "면도날", "최근교체일": "2026-02-01", "주기(일)": 14},
-            {"품목": "수세미", "최근교체일": "2026-02-15", "주기(일)": 30},
-            {"품목": "정수기필터", "최근교체일": "2025-12-10", "주기(일)": 120}
+            {"품목": "칫솔", "최근교체일": "2026-01-15", "주기": 30}, 
+            {"품목": "면도날", "최근교체일": "2026-02-01", "주기": 14},
+            {"품목": "수세미", "최근교체일": "2026-02-15", "주기": 30},
+            {"품목": "정수기필터", "최근교체일": "2025-12-10", "주기": 120}
         ])
     
     sup_df = st.session_state.supplies.copy()
-    sup_df['최근교체일'] = pd.to_datetime(sup_df['최근교체일'])
-    sup_df['교체예정일'] = sup_df.apply(lambda x: x['최근교체일'] + pd.Timedelta(days=x['주기(일)']), axis=1)
     
+    # 날짜 계산 (KeyError 방지를 위해 열 이름 일치 확인)
+    sup_df['최근교체일'] = pd.to_datetime(sup_df['최근교체일'])
+    sup_df['교체예정일'] = sup_df.apply(lambda x: x['최근교체일'] + pd.Timedelta(days=x['주기']), axis=1)
+    
+    # 날짜 출력 형식 정리
     sup_df['최근교체일'] = sup_df['최근교체일'].dt.strftime('%Y-%m-%d')
     sup_df['교체예정일'] = sup_df['교체예정일'].dt.strftime('%Y-%m-%d')
     
     sup_df.index = range(1, len(sup_df) + 1)
-    
-    # 여기도 use_container_width=False를 적용해 표를 콤팩트하게 만듦
+    # 여백 최적화 적용
     st.data_editor(sup_df, num_rows="dynamic", use_container_width=False)
