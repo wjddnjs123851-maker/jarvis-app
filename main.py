@@ -167,6 +167,7 @@ if menu == "투자 & 자산":
 elif menu == "식단 & 건강":
     st.header("🥗 실시간 영양 분석 리포트")
     
+    # 1. D-Day 및 체중 그래프
     try: d_day = (datetime(2026, 5, 30) - datetime.now()).days
     except: d_day = 0
     st.info(f"💍 결혼식까지 D-{d_day} | 현재 체중 125.00kg 기준 감량 모드")
@@ -182,17 +183,20 @@ elif menu == "식단 & 건강":
                 w_df["수치"] = w_df["수치"].apply(to_numeric)
                 st.line_chart(w_df.set_index("날짜")[["수치"]].sort_index(), color="#FF4B4B")
             else: st.caption("아직 기록된 체중 데이터가 없습니다.")
-    except: st.warning("그래프를 불러오는 중입니다...")
+    except: st.warning("데이터 로딩 중...")
 
-    cur_nutri = {"지방": 0, "콜레스테롤": 0, "나트륨": 0, "탄수화물": 0, "식이섬유": 0, "당": 0, "단백질": 0}
+    # 2. 오늘 섭취량 요약 (자동 합산)
+    cur_nutri = {k: 0 for k in DAILY_GUIDE.keys()}
     today_str = datetime.now().strftime('%Y-%m-%d')
     current_kcal = 0
     
     if not df_log.empty:
         try:
             df_today = df_log[df_log['날짜'].astype(str).str.contains(today_str, na=False)]
-            k_df = df_today[(df_today['구분'] == '식단') & (df_today['항목'] == '칼로리')]
-            current_kcal = k_df['수치'].apply(to_numeric).sum()
+            for nut in cur_nutri.keys():
+                n_df = df_today[(df_today['구분'] == '식단') & (df_today['항목'] == nut)]
+                cur_nutri[nut] = n_df['수치'].apply(to_numeric).sum()
+            current_kcal = cur_nutri["칼로리"]
         except: pass
 
     c1, c2 = st.columns([1, 1])
@@ -203,23 +207,56 @@ elif menu == "식단 & 건강":
         st.progress(min(current_kcal / DAILY_GUIDE["칼로리"]["val"], 1.0))
     with c2:
         st.subheader("📊 영양소 상세")
-        for name, val in cur_nutri.items():
+        for name in ["탄수화물", "단백질", "지방", "나트륨"]:
+            val = cur_nutri[name]
             guide = DAILY_GUIDE[name]
-            st.write(f"**{name}**: {val:.2f}{guide['unit']} / {guide['val']}{guide['unit']} (0%)")
-            st.progress(0.0)
+            st.write(f"**{name}**: {val:.1f} / {guide['val']}{guide['unit']}")
+            st.progress(min(val / guide['val'], 1.0))
 
     st.divider()
-    st.subheader("📝 간편 기록")
-    with st.form("quick_input"):
-        c_in1, c_in2, c_in3 = st.columns(3)
-        with c_in1: in_w = st.number_input("현재 체중(kg)", 0.0, 200.0, 125.0, step=0.1)
-        with c_in2: in_k = st.number_input("섭취 칼로리(kcal)", 0.0, step=10.0)
-        with c_in3: in_p = st.number_input("섭취 단백질(g)", 0.0, step=1.0)
-        if st.form_submit_button("기록 저장"):
-            if in_w > 0: send_to_sheet("건강", "체중", in_w, corpus="Health")
-            if in_k > 0: send_to_sheet("식단", "칼로리", in_k, corpus="Health")
-            if in_p > 0: send_to_sheet("식단", "단백질", in_p, corpus="Health")
-            st.rerun()
+
+    # 3. [업그레이드] 팻시크릿 데이터 완전 입력 창
+    st.subheader("📝 영양 성분 상세 기록")
+    st.caption("팻시크릿 앱의 수치를 그대로 입력하세요.")
+    
+    with st.form("full_input"):
+        in_w = st.number_input("오늘 체중 (kg / 변동 없으면 유지)", 0.0, 200.0, 125.0, step=0.1)
+        st.markdown("---")
+        
+        # 입력하기 편하게 4열로 배치
+        c_in1, c_in2, c_in3, c_in4 = st.columns(4)
+        with c_in1:
+            in_kcal = st.number_input("칼로리 (kcal)", 0.0, step=10.0)
+            in_carb = st.number_input("탄수화물 (g)", 0.0, step=1.0)
+        with c_in2:
+            in_prot = st.number_input("단백질 (g)", 0.0, step=1.0)
+            in_fat = st.number_input("지방 (g)", 0.0, step=1.0)
+        with c_in3:
+            in_sugar = st.number_input("당류 (g)", 0.0, step=1.0)
+            in_fiber = st.number_input("식이섬유 (g)", 0.0, step=1.0)
+        with c_in4:
+            in_na = st.number_input("나트륨 (mg)", 0.0, step=10.0)
+            in_chol = st.number_input("콜레스테롤 (mg)", 0.0, step=10.0)
+
+        if st.form_submit_button("✅ 모든 데이터 저장"):
+            if in_w > 0 and in_w != 125.0: send_to_sheet("건강", "체중", in_w, corpus="Health")
+            
+            nutri_map = {
+                "칼로리": in_kcal, "탄수화물": in_carb, "단백질": in_prot, "지방": in_fat,
+                "당": in_sugar, "식이섬유": in_fiber, "나트륨": in_na, "콜레스테롤": in_chol
+            }
+            
+            saved_count = 0
+            for key, val in nutri_map.items():
+                if val > 0:
+                    send_to_sheet("식단", key, val, corpus="Health")
+                    saved_count += 1
+            
+            if saved_count > 0:
+                st.success(f"{saved_count}개 항목 저장 완료!")
+                st.rerun()
+            else:
+                st.warning("입력된 내용이 없습니다.")
 
 # === 탭 3: 재고 관리 ===
 elif menu == "재고 관리":
