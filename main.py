@@ -171,8 +171,8 @@ elif menu == "식단 & 건강":
 elif menu == "재고 관리":
     st.header("📦 식자재 및 생활용품 관리")
     
-    # 화면을 6:4 비율로 쪼개기
-    col_left, col_right = st.columns([6, 4])
+    # 화면을 5:5 반반 비율로 쪼개기
+    col_left, col_right = st.columns([5, 5])
     
     with col_left:
         st.subheader("🛒 식재료 현황")
@@ -188,21 +188,27 @@ elif menu == "재고 관리":
             ])
         inv_df = st.session_state.inventory.copy()
         inv_df.index = range(1, len(inv_df) + 1)
-        st.data_editor(inv_df, num_rows="dynamic", use_container_width=True)
+        # use_container_width=False를 적용해 휑한 여백을 줄임
+        st.data_editor(inv_df, num_rows="dynamic", use_container_width=False)
 
     with col_right:
         st.subheader("⏰ 생활용품 교체")
         if 'supplies' not in st.session_state:
             st.session_state.supplies = pd.DataFrame([
-                {"품목": "칫솔", "최근교체일": "2026-02-15", "주기": 30}, 
+                {"품목": "칫솔(보스)", "최근교체일": "2026-01-15", "주기": 30}, 
+                {"품목": "칫솔(약혼녀)", "최근교체일": "2026-02-15", "주기": 30},
                 {"품목": "면도날", "최근교체일": "2026-02-01", "주기": 14},
                 {"품목": "수세미", "최근교체일": "2026-02-15", "주기": 30},
                 {"품목": "정수기필터", "최근교체일": "2025-12-10", "주기": 120}
             ])
         sup_df = st.session_state.supplies.copy()
+        # 날짜 계산
         sup_df['최근교체일'] = pd.to_datetime(sup_df['최근교체일'])
         sup_df['교체예정일'] = sup_df.apply(lambda x: x['최근교체일'] + pd.Timedelta(days=x['주기']), axis=1)
+        # 형식 정리
         sup_df['최근교체일'] = sup_df['최근교체일'].dt.strftime('%Y-%m-%d')
         sup_df['교체예정일'] = sup_df['교체예정일'].dt.strftime('%Y-%m-%d')
+        
         sup_df.index = range(1, len(sup_df) + 1)
-        st.data_editor(sup_df, num_rows="dynamic", use_container_width=True)
+        # 오른쪽 표도 여백을 줄여서 깔끔하게 배치
+        st.data_editor(sup_df, num_rows="dynamic", use_container_width=False)
