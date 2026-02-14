@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 1. 구글 시트 연동 설정
 def get_gspread_client():
@@ -63,7 +63,7 @@ with st.sidebar:
     st.header("📋 데이터 통합 입력")
     with st.form("master_input"):
         st.subheader("💰 가계부 기록")
-        item_name = st.text_input("지출 항목 (예: 점심식사)")
+        item_name = st.text_input("지출 항목")
         amount = st.number_input("금액", min_value=0, step=100)
         # 시트의 열 이름을 카테고리로 사용
         cat_list = df_sheet.columns.tolist()[2:] if not df_sheet.empty else ["식비", "생활용품"]
@@ -77,8 +77,8 @@ with st.sidebar:
         c_fat = st.number_input("지방(g)", min_value=0)
 
         if st.form_submit_button("자비스에 저장"):
-            # 1. 시트에 행 추가 (실제 보스 시트 컬럼 순서에 맞게 조정 필요)
-            # 2. 영양 데이터 세션 합산
+            # 1. 시트에 행 추가 로직
+            # (보스의 시트 구조에 맞게 순차적으로 데이터 생성 후 ws.append_row 호출 가능)
             st.session_state.consumed["칼로리"] += c_cal
             st.session_state.consumed["탄수화물"] += c_car
             st.session_state.consumed["단백질"] += c_pro
@@ -95,7 +95,9 @@ if not df_sheet.empty:
     asset_rows = []
     for col in df_sheet.columns:
         val = latest[col]
-        asset_rows.append({"항목": col, "내용": f"{val:,.0f}원" if isinstance(val, (int, float)) else val})
+        # 숫자인 경우 콤마 표시, 아닌 경우 그대로 출력
+        content = f"{val:,.0f}원" if isinstance(val, (int, float)) else str(val)
+        asset_rows.append({"항목": col, "내용": content})
     st.table(pd.DataFrame(asset_rows).assign(순번=range(1, len(asset_rows)+1)).set_index('순번'))
 
 # 2. 건강 및 정밀 영양 리포트
