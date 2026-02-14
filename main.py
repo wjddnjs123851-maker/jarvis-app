@@ -32,12 +32,15 @@ FIXED_DATA = {
         "면도날": {"last": "2026-02-06", "period": 21},
         "칫솔": {"last": "2026-02-06", "period": 90},
         "이불세탁": {"last": "2026-02-04", "period": 14}
+    },
+    "categories": {
+        "지출": ["식비(집밥)", "식비(외식)", "식비(배달)", "식비(편의점)", "생활용품", "건강/의료", "기호품", "주거/통신", "교통/차량", "금융/보험", "결혼준비", "경조사", "기타지출"],
+        "수입": ["급여", "금융소득", "기타"]
     }
 }
 
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# --- [2. 시스템 유틸리티] ---
 def send_to_sheet(d_type, item, value):
     now = datetime.utcnow() + timedelta(hours=9)
     kr_time = now.strftime('%Y-%m-%d %H:%M:%S')
@@ -61,15 +64,13 @@ def get_live_prices():
         for k, v in FIXED_DATA["crypto"].items(): prices["crypto"][v['마켓']] = v['평단']
     return prices
 
-# --- [3. 초기화 및 사이드바 통합 제어] ---
-st.set_page_config(page_title="JARVIS v16.0", layout="wide")
+# --- [3. UI 레이아웃 및 제어] ---
+st.set_page_config(page_title="JARVIS v17.0", layout="wide")
 if 'consumed' not in st.session_state: st.session_state.consumed = {k: 0 for k in FIXED_DATA["health_target"].keys()}
 
-# 사이드바에서 메뉴와 입력창을 동시에 제어합니다.
 with st.sidebar:
     st.title("JARVIS 제어 센터")
     menu = st.radio("메뉴 선택", ["영양/식단/체중", "자산/투자/가계부", "재고/생활관리"])
-    
     st.divider()
     
     if menu == "영양/식단/체중":
@@ -87,18 +88,22 @@ with st.sidebar:
             send_to_sheet("식단", "칼로리", in_kcal)
             for k, v in zip(FIXED_DATA["health_target"].keys(), [in_kcal, in_carb, in_prot, in_fat, in_sug, in_na, in_cho]):
                 st.session_state.consumed[k] += v
-            st.success("건강 데이터 전송 완료")
+            st.success("전송 완료")
 
     elif menu == "자산/투자/가계부":
         st.subheader("가계부 기록")
         t_type = st.selectbox("구분", ["지출", "수입"])
-        t_item = st.text_input("항목명")
+        # 선택한 구분에 따라 카테고리 목록 변경
+        t_cat = st.selectbox("카테고리 선택", FIXED_DATA["categories"][t_type])
+        t_memo = st.text_input("상세 내용 (선택사항)", placeholder="예: 친구와 저녁식사")
         t_val = st.number_input("금액", 0)
+        
         if st.button("가계부 데이터 전송"):
-            if send_to_sheet(t_type, t_item, t_val):
-                st.success(f"{t_type} 내역 전송 완료")
+            item_name = f"{t_cat} - {t_memo}" if t_memo else t_cat
+            if send_to_sheet(t_type, item_name, t_val):
+                st.success(f"[{t_type}] {item_name} 저장 완료")
 
-# --- [4. 메인 리포트 출력] ---
+# --- [4. 메인 리포트 출력 (v16.0 로직 동일)] ---
 st.title(f"JARVIS: {menu}")
 
 if menu == "영양/식단/체중":
@@ -114,16 +119,14 @@ elif menu == "자산/투자/가계부":
     live = get_live_prices()
     st.subheader("통합 자산 및 투자 리포트")
     a_rows = []
-    # 현금/예적금/금/주식/코인/부채 통합 표 생성 (v15.0 로직 유지)
+    # 자산 데이터 구성... (중략)
     a_rows.append({"분류": "현금", "항목": "가용 잔고", "평가액": f"{FIXED_DATA['assets']['cash_balance']:,}원", "수익률": "-"})
     for k, v in FIXED_DATA["assets"]["savings"].items():
         a_rows.append({"분류": "예적금", "항목": k, "평가액": f"{v:,}원", "수익률": "-"})
-    
     g_qty = FIXED_DATA["assets"]["gold"]["qty_gram"]
     g_eval = int(g_qty * live["gold"])
     g_profit_rate = ((live["gold"] / FIXED_DATA["assets"]["gold"]["bought_price_1g"]) - 1) * 100
     a_rows.append({"분류": "귀금속", "항목": f"순금({g_qty}g)", "평가액": f"{g_eval:,}원", "수익률": f"{g_profit_rate:.2f}%"})
-    
     for n, i in FIXED_DATA["stocks"].items():
         curr = live["stocks"].get(n, i['평단'])
         a_rows.append({"분류": "주식", "항목": n, "평가액": f"{curr * i['수량']:,}원", "수익률": f"{((curr/i['평단'])-1)*100:.2f}%"})
@@ -132,7 +135,6 @@ elif menu == "자산/투자/가계부":
         a_rows.append({"분류": "코인", "항목": n, "평가액": f"{int(curr * i['수량']):,}원", "수익률": f"{((curr/i['평단'])-1)*100:.2f}%"})
     for k, v in FIXED_DATA["assets"]["liabilities"].items():
         a_rows.append({"분류": "부채", "항목": k, "평가액": f"-{v:,}원", "수익률": "-"})
-
     df_a = pd.DataFrame(a_rows)
     df_a.index = range(1, len(df_a) + 1)
     st.table(df_a)
