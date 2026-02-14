@@ -4,9 +4,8 @@ import requests
 import json
 from datetime import datetime, timedelta
 
-# --- [1. 시스템 마스터 설정] ---
+# --- [1. 마스터 데이터 및 GID 설정] ---
 SPREADSHEET_ID = '1X6ypXRLkHIMOSGuYdNLnzLkVB4xHfpRR'
-# 보스께서 주신 GID 재확인
 GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532"}
 
 FIXED_DATA = {
@@ -52,16 +51,16 @@ def send_to_sheet(d_type, item, value):
         return True
     except: return False
 
-@st.cache_data(ttl=5)
-def load_csv_diagnostic(sheet_name):
+@st.cache_data(ttl=30)
+def load_sheet_data(sheet_name):
+    # 가장 단순한 방식의 CSV 로드
     gid = GID_MAP.get(sheet_name)
-    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
+    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid={gid}"
     try:
         df = pd.read_csv(url)
-        if df.empty: return "Empty"
-        return df.fillna(0)
-    except Exception as e:
-        return f"Error: {str(e)}"
+        return df
+    except:
+        return pd.DataFrame()
 
 def get_live_prices():
     prices = {"stocks": {}, "crypto": {}, "gold": 231345}
@@ -77,8 +76,8 @@ def get_live_prices():
         for k, v in FIXED_DATA["crypto"].items(): prices["crypto"][v['마켓']] = v['평단']
     return prices
 
-# --- [3. 메인 인터페이스] ---
-st.set_page_config(page_title="JARVIS v24.0", layout="wide")
+# --- [3. 메인 레이아웃] ---
+st.set_page_config(page_title="JARVIS v25.0", layout="wide")
 if 'consumed' not in st.session_state: st.session_state.consumed = {k: 0 for k in FIXED_DATA["health_target"].keys()}
 
 with st.sidebar:
@@ -86,21 +85,13 @@ with st.sidebar:
     menu = st.radio("메뉴 선택", ["영양/식단/체중", "자산/투자/가계부", "재고/생활관리"])
     st.divider()
     
-    # 데이터 연결 상태 진단판
-    st.subheader("시스템 연결 진단")
-    for s_name in GID_MAP.keys():
-        status = load_csv_diagnostic(s_name)
-        if isinstance(status, str):
-            st.error(f"{s_name} 탭: {status}")
-        else:
-            st.success(f"{s_name} 탭: 연결됨")
-
     if menu == "영양/식단/체중":
         st.subheader("건강 데이터 입력")
         in_w = st.number_input("현재 체중(kg)", 125.0, step=0.1)
         in_kcal = st.number_input("칼로리", 0)
+        # 탄단지당나콜 등 생략 (공간 절약)
         if st.button("전송"):
-            if send_to_sheet("체중", "일일체크", in_w): st.success("전송 완료")
+            if send_to_sheet("체중", "일일체크", in_w): st.success("Log 기록 성공")
 
     elif menu == "자산/투자/가계부":
         st.subheader("가계부 기록")
@@ -109,10 +100,10 @@ with st.sidebar:
         t_memo = st.text_input("메모")
         t_val = st.number_input("금액", 0)
         if st.button("시트 기록"):
-            if send_to_sheet(t_type, f"{t_cat} - {t_memo}", t_val): st.success("기록 완료")
+            if send_to_sheet(t_type, f"{t_cat} - {t_memo}", t_val): st.success("Finance 기록 성공")
 
-# --- [4. 메뉴별 리포트 출력] ---
-st.title(f"자비스 리포트: {menu}")
+# --- [4. 메뉴별 출력] ---
+st.title(f"JARVIS: {menu}")
 
 if menu == "영양/식단/체중":
     st.subheader("일일 영양 섭취 현황")
@@ -124,21 +115,24 @@ if menu == "영양/식단/체중":
 elif menu == "자산/투자/가계부":
     live = get_live_prices()
     
+    st.subheader("매달 고정 지출 예정")
+    df_recur = pd.DataFrame(FIXED_DATA["recurring"])
+    df_recur.index = range(1, len(df_recur) + 1)
+    st.table(df_recur)
+    
     st.subheader("통합 자산 관리")
-    asset_data = load_csv_diagnostic("Assets")
+    df_assets = load_sheet_data("Assets")
     a_rows = []
     
-    # 💡 데이터 로드 실패해도 수동 데이터로 표 구성
-    if not isinstance(asset_data, str):
-        for _, row in asset_data.iterrows():
+    # 기초 자산 출력 (시트 읽기 성공 시)
+    if not df_assets.empty:
+        for _, row in df_assets.iterrows():
             try:
-                a_rows.append({"분류": "금융", "항목": str(row.iloc[0]), "평가액": f"{int(float(str(row.iloc[1]).replace(',',''))):,}원", "비고": "시트 데이터"})
+                name, val = str(row.iloc[0]), str(row.iloc[1]).replace(',', '')
+                a_rows.append({"분류": "금융", "항목": name, "평가액": f"{int(float(val)):,}원", "비고": "기초잔액"})
             except: continue
-    else:
-        # 시트 로드 실패 시 보스의 마지막 자산 정보를 임시로 보여줌
-        a_rows.append({"분류": "금융", "항목": "데이터 대기 중", "평가액": "0원", "비고": "시트 공유 확인 필요"})
-
-    # 주식/코인 데이터 (무조건 출력)
+    
+    # 주식/코인 데이터 추가 (시트와 상관없이 출력)
     g_qty = 16.0
     a_rows.append({"분류": "귀금속", "항목": "순금(16g)", "평가액": f"{int(g_qty * live['gold']):,}원", "비고": "시세반영"})
     for n, i in FIXED_DATA["stocks"].items():
@@ -153,19 +147,17 @@ elif menu == "자산/투자/가계부":
     st.table(df_report)
 
 elif menu == "재고/생활관리":
+    # 생활관리 리포트 출력
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("소모품 교체 주기")
+        st.subheader("소모품 주기")
         l_rows = []
         now_kr = datetime.utcnow() + timedelta(hours=9)
         for item, info in FIXED_DATA["lifecycle"].items():
             d_day = (datetime.strptime(info["last"], "%Y-%m-%d") + timedelta(days=info["period"]) - now_kr).days
             l_rows.append({"항목": item, "상태": f"{d_day}일 남음", "최근": info["last"]})
-        df_l = pd.DataFrame(l_rows)
-        df_l.index = range(1, len(df_l) + 1)
-        st.table(df_l)
+        st.table(pd.DataFrame(l_rows).assign(index=range(1, len(l_rows)+1)).set_index('index'))
     with col2:
-        st.subheader("주방 재고 리스트")
+        st.subheader("주방 재고")
         df_k = pd.DataFrame([{"구분": k, "내용": v} for k, v in FIXED_DATA["kitchen"].items()])
-        df_k.index = range(1, len(df_k) + 1)
-        st.table(df_k)
+        st.table(df_k.assign(index=range(1, len(df_k)+1)).set_index('index'))
