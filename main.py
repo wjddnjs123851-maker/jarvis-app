@@ -1,76 +1,100 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import urllib.request
-import json
 
-# --- 1. 기본 설정 및 데이터 로드 ---
-# 보스의 가계부 시트 ID
+# --- [시스템 설정] ---
+st.set_page_config(page_title="JARVIS", layout="wide")
+
+# 보스의 가계부 시트 ID 및 공개 URL 생성
 SPREADSHEET_ID = '1X6ypXRLkHIMOSGuYdNLnzLkVB4xHfpRR'
+# 이 주소는 구글 시트의 데이터를 직접 CSV로 추출하는 경로입니다.
+SHEET_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid=0"
 
-# 라이브러리 없이 시트를 읽기 위해 CSV 내보내기 링크를 생성합니다.
-# (이 방식은 시트가 '링크가 있는 모든 사용자에게 공개'되어 있거나 서비스 계정 권한이 필요할 수 있으나, 
-# 가장 충돌이 적은 방식인 공개 CSV 읽기 방식으로 먼저 시도합니다.)
-SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv"
-
-@st.cache_data(ttl=600) # 10분마다 데이터 갱신
-def load_data():
+# --- [데이터 로드 함수] ---
+def load_finance_data():
     try:
-        df = pd.read_csv(SHEET_URL)
+        # pandas의 기본 기능을 활용해 가장 직접적으로 데이터를 가져옵니다.
+        df = pd.read_csv(SHEET_CSV_URL)
         return df
     except Exception as e:
+        # 에러 발생 시 사용자에게 친절하게 안내합니다.
+        st.error(f"⚠️ 데이터를 불러오는 중 장애 발생: {e}")
         return None
 
-# --- 2. 세션 상태 (식단 관리용) ---
-if 'nutri' not in st.session_state:
-    st.session_state.nutri = {'kcal': 0, 'carb': 0, 'prot': 0, 'fat': 0}
+# --- [세션 상태 관리] ---
+# 식단 누적 데이터는 새로고침 전까지 유지됩니다.
+if 'daily_nutri' not in st.session_state:
+    st.session_state.daily_nutri = {'칼로리': 0, '탄수': 0, '단백': 0, '지방': 0}
 
-# --- 3. UI 레이아웃 ---
-st.set_page_config(page_title="JARVIS", layout="wide")
-st.title("🛡️ JARVIS: 보스의 전용 비서")
+# --- [사이드바: 보스 정보] ---
+st.sidebar.title("🛡️ JARVIS OS")
+st.sidebar.info("보스, 5월 30일 결혼식까지 최선을 다해 보좌하겠습니다.")
+if st.sidebar.button("데이터 강제 새로고침"):
+    st.cache_data.clear()
+    st.rerun()
 
-tab1, tab2, tab3 = st.tabs(["💸 가계부 리포트", "🥗 식단 관리", "📦 재고 및 일정"])
+# --- [메인 화면 구성] ---
+st.title("보스의 개인 비서 시스템")
 
-# --- TAB 1: 가계부 ---
+tab1, tab2, tab3 = st.tabs(["💰 실시간 가계부", "🍽️ 식단 매니저", "📅 생활 관리"])
+
+# --- 1. 가계부 탭 ---
 with tab1:
-    st.header("실시간 가계부 현황")
-    data = load_data()
-    if data is not None:
-        st.success("보스의 가계부 데이터를 성공적으로 불러왔습니다.")
-        # 모든 항목(이자, 정수기, 난방비 등) 상세 출력
-        st.dataframe(data, use_container_width=True)
-    else:
-        st.error("데이터를 불러오지 못했습니다. 구글 시트의 [공유] 설정에서 '링크가 있는 모든 사용자에게 뷰어' 권한이 있는지 확인해 주십시오.")
+    st.header("가계부 상세 내역")
+    with st.spinner("구글 시트에서 최신 데이터를 동기화 중..."):
+        df = load_finance_data()
+        if df is not None:
+            st.success("동기화 완료.")
+            # 이자, 정수기, 난방비 등 모든 열을 그대로 노출합니다.
+            st.dataframe(df, use_container_width=True)
+            
+            # 간단한 통계 (금액 열이 있는 경우)
+            if '금액' in df.columns:
+                try:
+                    df['금액'] = pd.to_numeric(df['금액'].astype(str).str.replace(',', ''), errors='coerce')
+                    total = df['금액'].sum()
+                    st.metric("현재 지출 총액", f"{total:,.0f} 원")
+                except:
+                    pass
+        else:
+            st.warning("시트의 '공유'가 '링크가 있는 모든 사용자 - 뷰어'로 되어 있는지 다시 한번 확인 부탁드립니다.")
 
-# --- TAB 2: 식단 ---
+# --- 2. 식단 탭 ---
 with tab2:
-    st.header("오늘의 식단 합산")
-    with st.form("food"):
-        c1, c2, c3, c4 = st.columns(4)
-        k = c1.number_input("칼로리", 0)
-        c = c2.number_input("탄수", 0)
-        p = c3.number_input("단백", 0)
-        f = c4.number_input("지방", 0)
-        if st.form_submit_button("영양소 합산"):
-            st.session_state.nutri['kcal'] += k
-            st.session_state.nutri['carb'] += c
-            st.session_state.nutri['prot'] += p
-            st.session_state.nutri['fat'] += f
-            st.toast("기록 완료!")
+    st.header("영양소 누적 계산기")
+    with st.container(border=True):
+        col1, col2, col3, col4 = st.columns(4)
+        k = col1.number_input("Kcal", 0)
+        c = col2.number_input("탄수(g)", 0)
+        p = col3.number_input("단백(g)", 0)
+        f = col4.number_input("지방(g)", 0)
+        
+        if st.button("섭취 기록 추가"):
+            st.session_state.daily_nutri['칼로리'] += k
+            st.session_state.daily_nutri['탄수'] += c
+            st.session_state.daily_nutri['단백'] += p
+            st.session_state.daily_nutri['지방'] += f
+            st.success("데이터가 반영되었습니다.")
 
-    st.subheader("🔥 누적 섭취량")
-    st.write(st.session_state.nutri)
+    st.subheader("🔥 오늘 현재까지의 누적량")
+    st.json(st.session_state.daily_nutri)
 
-# --- TAB 3: 재고 ---
+# --- 3. 생활 관리 탭 ---
 with tab3:
-    st.header("생활 주기 및 재고 관리")
-    col_left, col_right = st.columns(2)
-    with col_left:
-        st.subheader("🔄 교체 주기")
-        st.table(pd.DataFrame({"항목": ["면도날", "칫솔", "수건"], "상태": ["양호", "교체필요", "양호"]}))
-    with col_right:
-        st.subheader("🍳 주방 재고")
-        st.table(pd.DataFrame({"품목": ["닭가슴살", "계란"], "수량": ["5kg", "2판"]}))
+    st.header("생활 주기 및 재고")
+    c_a, c_b = st.columns(2)
+    with c_a:
+        st.subheader("🔄 주기적 교체 항목")
+        st.table(pd.DataFrame({
+            "항목": ["면도날", "칫솔", "베개커버"],
+            "상태": ["교체완료(2월)", "사용 중", "관리 필요"]
+        }))
+    with c_b:
+        st.subheader("🍳 주방 주요 재고")
+        st.table(pd.DataFrame({
+            "품목": ["닭가슴살", "계란", "양파"],
+            "수량": ["5kg", "2판", "넉넉함"]
+        }))
 
 st.divider()
-st.caption(f"최종 동기화 시각: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.caption(f"시스템 가동 중 | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
