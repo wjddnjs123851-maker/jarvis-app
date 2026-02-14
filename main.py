@@ -2,99 +2,135 @@ import streamlit as st
 import pandas as pd
 import requests
 import json
+import plotly.express as px
 from datetime import datetime, timedelta
 
-# --- [1. 시스템 설정 및 시트 연결] ---
-# 보스의 최신 시트 ID 적용
+# --- [1. 시스템 설정 및 상수] ---
 SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
-# 시트 내 Assets 탭의 실제 GID를 확인하여 입력해 주세요 (기본값 0)
-GID_MAP = {"Log": "0", "Finance": "0", "Assets": "0"} 
+GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532"}
+API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
 FIXED_DATA = {
-    "health_target": {
-        "칼로리": 2000, "지방": 65, "콜레스테롤": 300, "나트륨": 2000, 
-        "탄수화물": 300, "식이섬유": 30, "당": 50, "단백질": 150
-    },
+    "health_target": {"칼로리": 2000, "지방": 65, "탄수화물": 300, "단백질": 150},
     "stocks": {
-        "동성화인텍": {"평단": 22701, "수량": 21, "코드": "033500"},
-        "삼성중공업": {"평단": 16761, "수량": 88, "코드": "010140"},
-        "SK하이닉스": {"평단": 473521, "수량": 6, "코드": "000660"},
-        "삼성전자": {"평단": 78895, "수량": 46, "코드": "005930"}
+        "동성화인텍": {"평단": 22701, "수량": 21},
+        "삼성중공업": {"평단": 16761, "수량": 88},
+        "SK하이닉스": {"평단": 473521, "수량": 6},
+        "삼성전자": {"평단": 78895, "수량": 46}
     },
     "crypto": {
-        "BTC": {"평단": 137788139, "수량": 0.00181400, "마켓": "KRW-BTC"},
-        "ETH": {"평단": 4243000, "수량": 0.03417393, "마켓": "KRW-ETH"}
+        "BTC": {"평단": 137788139, "수량": 0.00181400},
+        "ETH": {"평단": 4243000, "수량": 0.03417393}
     },
     "recurring": [
-        {"항목": "임대료", "금액": 261620}, {"항목": "대출 이자", "금액": 263280},
-        {"항목": "통신비", "금액": 136200}, {"항목": "보험료", "금액": 121780},
-        {"항목": "청년도약계좌(적금)", "금액": 700000}, {"항목": "구독서비스", "금액": 42680}
+        {"항목": "임대료/대출이자", "금액": 524900},
+        {"항목": "고정비(통신/보험/구독)", "금액": 300660},
+        {"항목": "청년도약계좌", "금액": 700000}
     ]
 }
 
-API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
-
-# --- [2. 유틸리티] ---
-def format_krw(val):
-    """금액 우측 정렬 및 콤마 처리"""
+# --- [2. 핵심 유틸리티] ---
+def to_numeric(val):
+    """문자열 숫자를 정수로 변환 (쉼표, 단위 제거)"""
     try:
-        n = int(float(str(val).replace(',', '').replace('원', '').strip()))
-        return f"{n:,}원"
-    except: return "0원"
+        return int(float(str(val).replace(',', '').replace('원', '').strip()))
+    except: return 0
 
-@st.cache_data(ttl=10)
-def load_assets_pure():
-    """Assets 탭에서 날짜 로그를 제외한 순수 자산 데이터만 필터링"""
-    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid={GID_MAP['Assets']}"
+def format_krw(val):
+    return f"{int(val):,}"
+
+def send_to_sheet(d_type, item, value):
+    now = datetime.utcnow() + timedelta(hours=9)
+    payload = {"time": now.strftime('%Y-%m-%d %H:%M:%S'), "type": d_type, "item": item, "value": value}
+    try:
+        res = requests.post(API_URL, data=json.dumps(payload), timeout=5)
+        return res.status_code == 200
+    except: return False
+
+@st.cache_data(ttl=60)
+def load_sheet_data(gid):
+    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
     try:
         df = pd.read_csv(url)
-        # 데이터가 밀리지 않도록 '항목' 컬럼이 문자열이고 날짜 형식이 아닌 것만 추출
-        df.columns = ['항목', '금액'] + list(df.columns[2:])
-        df_clean = df[~df['항목'].astype(str).str.contains('2026')].dropna(subset=['항목', '금액'])
-        return df_clean[['항목', '금액']]
-    except: return pd.DataFrame(columns=['항목', '금액'])
+        return df.dropna(subset=[df.columns[0]])
+    except: return pd.DataFrame()
 
-# --- [3. 메인 인터페이스 스타일] ---
-st.set_page_config(page_title="JARVIS v30.0", layout="wide")
-# 모든 표 숫자 데이터 우측 정렬 CSS
-st.markdown("<style>.stTable td { text-align: right !important; }</style>", unsafe_allow_html=True)
+# --- [3. 메인 레이아웃 및 스타일] ---
+st.set_page_config(page_title="JARVIS v32.5", layout="wide", initial_sidebar_state="expanded")
+st.markdown("""<style>
+    .main { background-color: #f8f9fa; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+</style>""", unsafe_allow_html=True)
 
-# --- [4. 메뉴별 출력] ---
+# --- [4. 사이드바 제어판] ---
 with st.sidebar:
-    st.title("JARVIS 제어 센터")
-    menu = st.radio("메뉴 선택", ["영양/식단/체중", "자산/투자/가계부", "재고/생활관리"])
+    st.title("🤖 JARVIS OS")
+    menu = st.radio("모듈 선택", ["📊 투자 & 자산", "🥗 식단 & 건강", "📦 재고 관리"])
     st.divider()
-
-st.title(f"자비스 리포트: {menu}")
-
-if menu == "자산/투자/가계부":
-    # 1. 고정 지출 섹션 복구
-    st.subheader("매달 고정 지출 예정 내역")
-    df_recur = pd.DataFrame(FIXED_DATA["recurring"])
-    df_recur["금액"] = df_recur["금액"].apply(format_krw)
-    st.table(df_recur.assign(No=range(1, len(df_recur)+1)).set_index('No'))
-
-    # 2. 통합 자산 관리 섹션 (밀림 방지 적용)
-    st.subheader("실시간 통합 자산 현황")
-    df_assets = load_assets_pure()
-    a_rows = []
     
-    # 기초 자산 (시트 데이터)
-    if not df_assets.empty:
-        for _, row in df_assets.iterrows():
-            if "항목" in str(row['항목']): continue
-            a_rows.append({"분류": "금융자산", "항목": str(row['항목']), "평가액": format_krw(row['금액']), "비고": "기초잔액"})
+    if menu == "🥗 식단 & 건강":
+        st.subheader("Daily 로그 입력")
+        w_col, k_col = st.columns(2)
+        in_w = w_col.number_input("체중(kg)", 0.0, 150.0, 125.0, step=0.1)
+        in_kcal = k_col.number_input("칼로리", 0, 5000, 0)
+        
+        with st.expander("세부 영양소 입력"):
+            c1, c2 = st.columns(2)
+            in_fat = c1.number_input("지방(g)", 0)
+            in_na = c1.number_input("나트륨(mg)", 0)
+            in_fiber = c1.number_input("식이섬유(g)", 0)
+            in_prot = c2.number_input("단백질(g)", 0)
+            in_carb = c2.number_input("탄수화물(g)", 0)
+            in_sugar = c2.number_input("당(g)", 0)
+        
+        if st.button("데이터 동기화", use_container_width=True, type="primary"):
+            with st.spinner("전송 중..."):
+                success = True
+                success &= send_to_sheet("건강", "체중", in_w)
+                inputs = {"칼로리": in_kcal, "지방": in_fat, "나트륨": in_na, "단백질": in_prot, "탄수화물": in_carb}
+                for k, v in inputs.items():
+                    if v > 0: success &= send_to_sheet("식단", k, v)
+                if success: st.success("시트 업데이트 완료!")
 
-    # 주식/코인 (고정 데이터)
-    for n, i in FIXED_DATA["stocks"].items():
-        # (실시간 시세 연동 로직 포함)
-        a_rows.append({"분류": "주식", "항목": n, "평가액": format_krw(i['평단'] * i['수량']), "비고": "투자자산"})
+# --- [5. 메인 대시보드] ---
+st.title(f"Core System: {menu}")
 
-    df_report = pd.DataFrame(a_rows)
-    df_report.index = range(1, len(df_report) + 1)
-    st.table(df_report)
+if menu == "📊 투자 & 자산":
+    # 상단 요약 지표
+    asset_df = load_sheet_data(GID_MAP["Assets"])
+    cash_total = sum(asset_df.iloc[:, 1].apply(to_numeric)) if not asset_df.empty else 0
+    
+    # 투자 자산 계산
+    inv_rows = []
+    for name, info in {**FIXED_DATA["stocks"], **FIXED_DATA["crypto"]}.items():
+        val = info['평단'] * info['수량']
+        inv_rows.append({"항목": name, "평가액": val, "유형": "투자"})
+    
+    inv_total = sum(row['평가액'] for row in inv_rows)
+    
+    m1, m2, m3 = st.columns(3)
+    m1.metric("총 자산(추정)", f"{format_krw(cash_total + inv_total)}원")
+    m2.metric("보유 현금", f"{format_krw(cash_total)}원")
+    m3.metric("투자 비중", f"{(inv_total/(cash_total+inv_total+1)*100):.1f}%")
 
-elif menu == "영양/식단/체중":
-    # 보스께서 '완벽하다'고 하신 기존 입력 및 리포트 로직 유지
-    st.info("기존 영양/식단/체중 탭의 설정이 유지되고 있습니다.")
-    # (이미 확인된 영양소 8종 입력 및 리포트 코드 삽입)
+    
+
+    # 자산 구성 차트 및 상세 표
+    col_left, col_right = st.columns([1, 1])
+    
+    with col_left:
+        st.subheader("자산 포트폴리오")
+        plot_data = pd.DataFrame([{"유형": "현금/금융", "금액": cash_total}, {"유형": "투자자산", "금액": inv_total}])
+        fig = px.pie(plot_data, values='금액', names='유형', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col_right:
+        st.subheader("상세 보유 내역")
+        # 가독성을 위해 데이터프레임 정리
+        display_inv = pd.DataFrame(inv_rows)
+        display_inv['평가액'] = display_inv['평가액'].apply(format_krw)
+        st.dataframe(display_inv, use_container_width=True, hide_index=True)
+
+elif menu == "🥗 식단 & 건강":
+    st.info("오늘의 권장 섭취량 대비 달성률을 시각화할 예정입니다. (데이터 로딩 중)")
+    # (여기에 식단 로그 시트 데이터를 가져와서 시각화하는 로직 추가 가능)
