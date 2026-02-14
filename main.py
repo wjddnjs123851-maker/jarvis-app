@@ -171,8 +171,23 @@ elif menu == "식단 & 건강":
 elif menu == "재고 관리":
     st.header("📦 식자재 및 생활용품 관리")
     
-    # 화면을 5:5 반반 비율로 쪼개기
-    col_left, col_right = st.columns([5, 5])
+    # 표 사이의 간격을 넓히고 화면 중앙에 배치하기 위한 설정
+    st.markdown("""
+        <style>
+        [data-testid="stHorizontalBlock"] {
+            align-items: start;
+            gap: 2rem;
+        }
+        .stDataEditor {
+            border: 1px solid #f0f2f6;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # 화면 비율을 5:5로 나누되, 중앙 집중형으로 배치
+    col_left, col_right = st.columns([1, 1])
     
     with col_left:
         st.subheader("🛒 식재료 현황")
@@ -188,8 +203,8 @@ elif menu == "재고 관리":
             ])
         inv_df = st.session_state.inventory.copy()
         inv_df.index = range(1, len(inv_df) + 1)
-        # use_container_width=False를 적용해 휑한 여백을 줄임
-        st.data_editor(inv_df, num_rows="dynamic", use_container_width=False)
+        # 너비를 가득 채워(True) 시원하게 보이도록 변경
+        st.data_editor(inv_df, num_rows="dynamic", use_container_width=True)
 
     with col_right:
         st.subheader("⏰ 생활용품 교체")
@@ -202,13 +217,10 @@ elif menu == "재고 관리":
                 {"품목": "정수기필터", "최근교체일": "2025-12-10", "주기": 120}
             ])
         sup_df = st.session_state.supplies.copy()
-        # 날짜 계산
         sup_df['최근교체일'] = pd.to_datetime(sup_df['최근교체일'])
         sup_df['교체예정일'] = sup_df.apply(lambda x: x['최근교체일'] + pd.Timedelta(days=x['주기']), axis=1)
-        # 형식 정리
         sup_df['최근교체일'] = sup_df['최근교체일'].dt.strftime('%Y-%m-%d')
         sup_df['교체예정일'] = sup_df['교체예정일'].dt.strftime('%Y-%m-%d')
-        
         sup_df.index = range(1, len(sup_df) + 1)
-        # 오른쪽 표도 여백을 줄여서 깔끔하게 배치
-        st.data_editor(sup_df, num_rows="dynamic", use_container_width=False)
+        # 여기도 너비를 가득 채워(True) 균형을 맞춤
+        st.data_editor(sup_df, num_rows="dynamic", use_container_width=True)
