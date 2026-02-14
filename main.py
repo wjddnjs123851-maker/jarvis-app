@@ -4,10 +4,9 @@ import requests
 import json
 from datetime import datetime, timedelta
 
-# --- [1. 마스터 데이터: 보스의 투자 및 프로필 정보] ---
+# 1. 마스터 데이터 (주식/코인 평단가 최신화)
 FIXED_DATA = {
-    "profile": {"항목": ["나이", "거주", "상태", "결혼예정일"], "내용": ["32세", "평택 원평동", "공무원 발령 대기 중", "2026-05-30"]},
-    "health": {"항목": ["현재 체중", "목표 체중", "주요 관리", "식단 금기"], "내용": ["125.0kg", "90.0kg", "고지혈증/ADHD", "생굴/멍게"]},
+    "health": {"항목": ["목표 체중", "주요 관리", "식단 금기"], "내용": ["90.0kg", "고지혈증/ADHD", "생굴/멍게"]},
     "stocks": {
         "동성화인텍": {"평단": 22701, "수량": 21, "코드": "033500"},
         "삼성중공업": {"평단": 16761, "수량": 88, "코드": "010140"},
@@ -37,10 +36,12 @@ FIXED_DATA = {
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 TARGET = {"칼로리": 2000, "탄수": 300, "단백": 150, "지방": 65, "수분": 2000}
 
-# --- [2. 시스템 유틸리티 함수] ---
-def send_to_sheet(data_type, item, value):
+# 2. 유틸리티 함수
+def send_to_sheet(d_type, item, value):
+    # 한국 시간 강제 고정 (UTC+9)
+    kr_time = (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S')
+    payload = {"time": kr_time, "type": d_type, "item": item, "value": value}
     try:
-        payload = {"type": data_type, "item": item, "value": value}
         requests.post(API_URL, data=json.dumps(payload), timeout=5)
         return True
     except: return False
@@ -59,63 +60,53 @@ def get_live_prices():
         for k, v in FIXED_DATA["crypto"].items(): prices["crypto"][v['마켓']] = v['평단']
     return prices
 
-# --- [3. 초기화 및 레이아웃] ---
-st.set_page_config(page_title="JARVIS v11.0", layout="wide")
+# 3. 레이아웃
+st.set_page_config(page_title="자비스 v12.0", layout="wide")
 if 'consumed' not in st.session_state: st.session_state.consumed = {k: 0 for k in TARGET.keys()}
 
-st.title("🛡️ JARVIS OS v11.0")
-tabs = st.tabs(["🏠 홈/체중", "🥗 영양/식단", "📈 자산/투자", "📦 재고/생활"])
+st.title("JARVIS 통합 대시보드")
+tabs = st.tabs(["영양/식단/체중", "자산/투자", "재고/생활", "가계부 기록"])
 
-# --- [탭 1: 홈/체중 기록] ---
+# 탭 1: 영양/식단/체중
 with tabs[0]:
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("📍 보스 프로필")
-        st.table(pd.DataFrame(FIXED_DATA["profile"]))
-    with col_b:
-        st.subheader("⚖️ 체중 관리")
-        weight = st.number_input("오늘 체중(kg)", value=125.0, step=0.1)
-        if st.button("체중 시트 전송"):
-            if send_to_sheet("Weight", "Daily_Check", weight):
-                st.success(f"{weight}kg 기록이 구글 시트에 저장되었습니다.")
-            else: st.error("시트 전송 실패")
-
-# --- [탭 2: 영양/식단] ---
-with tabs[1]:
-    st.header("🥗 영양 섭취 및 기록")
-    with st.expander("➕ 식단 입력 (FatSecret 수치)", expanded=True):
-        c1, c2, c3, c4 = st.columns(4)
-        kcal = c1.number_input("칼로리", 0)
-        carb = c2.number_input("탄수", 0)
-        prot = c3.number_input("단백", 0)
-        fat = c4.number_input("지방", 0)
-        if st.button("영양 데이터 시트 전송"):
-            send_to_sheet("Diet", "Calories", kcal)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("체중 기록")
+        weight = st.number_input("현재 체중(kg)", value=125.0, step=0.1)
+        if st.button("체중 저장"):
+            send_to_sheet("체중", "일일체크", weight)
+            st.success("시트 전송 완료")
+            
+    with col2:
+        st.subheader("식단 입력 (FatSecret)")
+        kcal = st.number_input("칼로리", 0)
+        carb = st.number_input("탄수", 0)
+        prot = st.number_input("단백", 0)
+        fat = st.number_input("지방", 0)
+        if st.button("영양 데이터 전송"):
+            send_to_sheet("식단", "칼로리", kcal)
             st.session_state.consumed['칼로리'] += kcal
             st.session_state.consumed['탄수'] += carb
             st.session_state.consumed['단백'] += prot
             st.session_state.consumed['지방'] += fat
-            st.success("시트 저장 및 앱 합산 완료")
+            st.rerun()
 
-    st.subheader("📊 오늘의 영양 표")
-    nut_df = pd.DataFrame([{"항목": k, "현재": v, "목표": TARGET[k]} for k, v in st.session_state.consumed.items()])
-    st.table(nut_df)
+    st.subheader("오늘의 영양 섭취 현황")
+    st.table(pd.DataFrame([{"항목": k, "현재": v, "목표": TARGET[k]} for k, v in st.session_state.consumed.items()]))
 
-# --- [탭 3: 자산/투자] ---
-with tabs[2]:
-    st.header("📈 투자 실시간 리포트")
+# 탭 2: 자산/투자
+with tabs[1]:
     live = get_live_prices()
-    
-    # 주식 리스트
+    st.subheader("국내 주식 수익률")
     s_data = []
     for n, i in FIXED_DATA["stocks"].items():
         curr = live["stocks"].get(n, i['평단'])
         profit = (curr - i['평단']) * i['수량']
         rate = ((curr / i['평단']) - 1) * 100
-        s_data.append({"종목": n, "수량": i['수량'], "현재가": f"{curr:,}", "수익률": f"{rate:.2f}%", "평가손익": f"{int(profit):,}"})
+        s_data.append({"종목": n, "현재가": f"{curr:,}", "수익률": f"{rate:.2f}%", "평가손익": f"{int(profit):,}"})
     st.table(pd.DataFrame(s_data))
-    
-    # 코인 리스트
+
+    st.subheader("가상자산 수익률")
     c_data = []
     for n, i in FIXED_DATA["crypto"].items():
         curr = live["crypto"].get(i['마켓'], i['평단'])
@@ -124,17 +115,24 @@ with tabs[2]:
         c_data.append({"코인": n, "현재가": f"{curr:,.0f}", "수익률": f"{rate:.2f}%", "평가손익": f"{int(profit):,}"})
     st.table(pd.DataFrame(c_data))
 
-# --- [탭 4: 재고/생활] ---
+# 탭 3: 재고/생활
+with tabs[2]:
+    st.subheader("교체 주기")
+    l_rows = []
+    for item, info in FIXED_DATA["lifecycle"].items():
+        d_day = (datetime.strptime(info["last"], "%Y-%m-%d") + timedelta(days=info["period"]) - (datetime.utcnow() + timedelta(hours=9))).days
+        l_rows.append({"항목": item, "상태": f"{d_day}일 남음", "최근": info["last"]})
+    st.table(pd.DataFrame(l_rows))
+    
+    st.subheader("주방 재고")
+    st.table(pd.DataFrame([{"구분": k, "내용": v} for k, v in FIXED_DATA["kitchen"].items()]))
+
+# 탭 4: 가계부 기록 (지출/수입)
 with tabs[3]:
-    st.header("📦 시스템 재고 및 주기")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("🔄 교체 주기")
-        l_rows = []
-        for item, info in FIXED_DATA["lifecycle"].items():
-            d_day = (datetime.strptime(info["last"], "%Y-%m-%d") + timedelta(days=info["period"]) - datetime.now()).days
-            l_rows.append({"항목": item, "상태": f"D-{d_day}", "최근": info["last"]})
-        st.table(pd.DataFrame(l_rows))
-    with col2:
-        st.subheader("🍳 주방 재고")
-        st.table(pd.DataFrame([{"카테고리": k, "내용": v} for k, v in FIXED_DATA["kitchen"].items()]))
+    st.subheader("지출 및 수입 기록")
+    t_type = st.selectbox("구분", ["지출", "수입"])
+    t_item = st.text_input("항목명 (예: 편의점, 월급 등)")
+    t_val = st.number_input("금액", 0)
+    if st.button("가계부 시트 전송"):
+        if send_to_sheet(t_type, t_item, t_val):
+            st.success(f"{t_type} 내역이 Finance 탭에 저장되었습니다.")
