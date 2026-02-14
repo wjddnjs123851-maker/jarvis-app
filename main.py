@@ -4,7 +4,7 @@ import requests
 import json
 from datetime import datetime, timedelta
 
-# --- [1. 마스터 데이터: 자산, 주식, 코인, 금 상세 정보] ---
+# --- [1. 마스터 데이터 및 설정] ---
 FIXED_DATA = {
     "health_target": {"칼로리": 2000, "탄수": 300, "단백": 150, "지방": 65, "당": 50, "나트륨": 2000, "콜레스테롤": 300},
     "stocks": {
@@ -18,7 +18,7 @@ FIXED_DATA = {
         "ETH": {"평단": 4243000, "수량": 0.03417393, "마켓": "KRW-ETH"}
     },
     "assets": {
-        "gold": {"qty_gram": 16.0, "bought_price_1g": 243800}, # 4돈(15g) + 1g
+        "gold": {"qty_gram": 16.0, "bought_price_1g": 243800},
         "cash_balance": 492918,
         "savings": {"청년도약계좌": 14700000, "주택청약": 2540000, "전세보증금": 145850000},
         "liabilities": {"전세대출": 100000000, "마이너스통장": 3000000, "학자금대출": 1247270}
@@ -48,7 +48,7 @@ def send_to_sheet(d_type, item, value):
     except: return False
 
 def get_live_prices():
-    prices = {"stocks": {}, "crypto": {}, "gold": 231345} # 금 시세는 오늘 검색된 약 23.1만원/g 반영
+    prices = {"stocks": {}, "crypto": {}, "gold": 231345}
     for name, info in FIXED_DATA["stocks"].items():
         try:
             res = requests.get(f"https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{info['코드']}", timeout=1).json()
@@ -61,15 +61,24 @@ def get_live_prices():
         for k, v in FIXED_DATA["crypto"].items(): prices["crypto"][v['마켓']] = v['평단']
     return prices
 
-# --- [3. UI 및 사이드바 입력] ---
-st.set_page_config(page_title="JARVIS v14.0", layout="wide")
+# --- [3. UI 레이아웃 및 탭 설정] ---
+st.set_page_config(page_title="JARVIS v15.0", layout="wide")
 if 'consumed' not in st.session_state: st.session_state.consumed = {k: 0 for k in FIXED_DATA["health_target"].keys()}
 
+st.title("JARVIS 통합 리포트")
+
+# 메인 탭 정의 (key를 지정하여 선택 상태 추적)
+main_tabs = st.tabs(["영양/식단/체중", "자산/투자/가계부", "재고/생활관리"])
+
+# --- [4. 탭별 사이드바 입력창 자동 전환] ---
 with st.sidebar:
-    st.title("JARVIS 입력 센터")
+    st.title("입력 센터")
     
-    with st.expander("건강 및 식단 기록", expanded=True):
-        in_w = st.number_input("체중(kg)", 125.0, step=0.1)
+    # 탭 선택 상태에 따라 다른 입력창 표시
+    # 1번째 탭(영양/식단/체중) 선택 시
+    if st.session_state.get('active_tab') == 0 or 'active_tab' not in st.session_state:
+        st.subheader("건강 데이터 입력")
+        in_w = st.number_input("현재 체중(kg)", 125.0, step=0.1)
         in_kcal = st.number_input("칼로리", 0)
         in_carb = st.number_input("탄수", 0)
         in_prot = st.number_input("단백", 0)
@@ -82,22 +91,24 @@ with st.sidebar:
             send_to_sheet("식단", "칼로리", in_kcal)
             for k, v in zip(FIXED_DATA["health_target"].keys(), [in_kcal, in_carb, in_prot, in_fat, in_sug, in_na, in_cho]):
                 st.session_state.consumed[k] += v
-            st.success("건강 데이터 전송 완료")
+            st.success("건강 데이터 시트 전송 완료")
 
-    with st.expander("가계부 기록", expanded=True):
+    # 2번째 탭(자산/투자/가계부) 선택 시
+    elif st.session_state.get('active_tab') == 1:
+        st.subheader("가계부 기록")
         t_type = st.selectbox("구분", ["지출", "수입"])
         t_item = st.text_input("항목명")
         t_val = st.number_input("금액", 0)
-        if st.button("가계부 전송"):
+        if st.button("가계부 데이터 전송"):
             if send_to_sheet(t_type, t_item, t_val):
-                st.success(f"{t_type} 전송 완료")
+                st.success(f"{t_type} 내역 Finance 탭 전송 완료")
 
-# --- [4. 메인 리포트] ---
-st.title("JARVIS 통합 리포트")
-tabs = st.tabs(["건강/식단 리포트", "자산/가계부 리포트", "재고/생활 관리"])
+# --- [5. 탭별 메인 리포트 내용] ---
 
-# 탭 1: 건강 리포트
-with tabs[0]:
+# 탭 1: 영양/식단/체중
+with main_tabs[0]:
+    # 탭 선택 상태 저장
+    st.session_state.active_tab = 0
     st.subheader("일일 영양 섭취 현황")
     n_rows = []
     for k, v in st.session_state.consumed.items():
@@ -106,23 +117,24 @@ with tabs[0]:
     df_n.index = range(1, len(df_n) + 1)
     st.table(df_n)
 
-# 탭 2: 자산 및 가계부 리포트
-with tabs[1]:
+# 탭 2: 자산/투자/가계부
+with main_tabs[1]:
+    st.session_state.active_tab = 1
     live = get_live_prices()
-    st.subheader("통합 자산 현황")
+    st.subheader("통합 자산 및 투자 현황")
     a_rows = []
-    # 1. 현금 및 예적금
+    # 현금 및 예적금
     a_rows.append({"분류": "현금", "항목": "가용 잔고", "평가액": f"{FIXED_DATA['assets']['cash_balance']:,}원", "수익률": "-"})
     for k, v in FIXED_DATA["assets"]["savings"].items():
         a_rows.append({"분류": "예적금", "항목": k, "평가액": f"{v:,}원", "수익률": "-"})
     
-    # 2. 금 (Gold)
+    # 금 (Gold)
     g_qty = FIXED_DATA["assets"]["gold"]["qty_gram"]
     g_eval = int(g_qty * live["gold"])
     g_profit_rate = ((live["gold"] / FIXED_DATA["assets"]["gold"]["bought_price_1g"]) - 1) * 100
-    a_rows.append({"분류": "귀금속", "항목": f"순금({g_qty}g)", "평가액": f"{g_eval:,}원", "수익률": f"{g_profit_rate:.2f}% (1g 구매분 기준)"})
+    a_rows.append({"분류": "귀금속", "항목": f"순금({g_qty}g)", "평가액": f"{g_eval:,}원", "수익률": f"{g_profit_rate:.2f}%"})
     
-    # 3. 주식 및 코인
+    # 주식 및 코인
     for n, i in FIXED_DATA["stocks"].items():
         curr = live["stocks"].get(n, i['평단'])
         a_rows.append({"분류": "주식", "항목": n, "평가액": f"{curr * i['수량']:,}원", "수익률": f"{((curr/i['평단'])-1)*100:.2f}%"})
@@ -130,7 +142,7 @@ with tabs[1]:
         curr = live["crypto"].get(i['마켓'], i['평단'])
         a_rows.append({"분류": "코인", "항목": n, "평가액": f"{int(curr * i['수량']):,}원", "수익률": f"{((curr/i['평단'])-1)*100:.2f}%"})
     
-    # 4. 부채
+    # 부채
     for k, v in FIXED_DATA["assets"]["liabilities"].items():
         a_rows.append({"분류": "부채", "항목": k, "평가액": f"-{v:,}원", "수익률": "-"})
 
@@ -138,8 +150,9 @@ with tabs[1]:
     df_a.index = range(1, len(df_a) + 1)
     st.table(df_a)
 
-# 탭 3: 재고 및 생활 관리
-with tabs[2]:
+# 탭 3: 재고/생활관리
+with main_tabs[2]:
+    st.session_state.active_tab = 2
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("소모품 주기")
