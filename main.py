@@ -6,7 +6,11 @@ from datetime import datetime, timedelta
 
 # --- [1. 시스템 설정 및 GID 정보] ---
 SPREADSHEET_ID = '1X6ypXRLkHIMOSGuYdNLnzLkVB4xHfpRR'
-GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532"}
+GID_MAP = {
+    "Log": "1716739583", 
+    "Finance": "1790876407", 
+    "Assets": "1666800532"
+}
 
 FIXED_DATA = {
     "health_target": {"칼로리": 2000, "탄수": 300, "단백": 150, "지방": 65, "당": 50, "나트륨": 2000, "콜레스테롤": 300},
@@ -59,7 +63,7 @@ def load_csv(sheet_name):
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_MAP[sheet_name]}"
     try:
         df = pd.read_csv(url)
-        return df
+        return df.fillna(0) # 비어있는 칸은 0으로 채움
     except:
         return pd.DataFrame()
 
@@ -78,7 +82,7 @@ def get_live_prices():
     return prices
 
 # --- [3. 메인 인터페이스] ---
-st.set_page_config(page_title="JARVIS v21.0", layout="wide")
+st.set_page_config(page_title="JARVIS v22.0", layout="wide")
 if 'consumed' not in st.session_state: st.session_state.consumed = {k: 0 for k in FIXED_DATA["health_target"].keys()}
 
 with st.sidebar:
@@ -127,26 +131,22 @@ if menu == "영양/식단/체중":
 
 elif menu == "자산/투자/가계부":
     live = get_live_prices()
-    
-    # (1) 고정 지출 리포트
     st.subheader("매달 고정 지출 현황")
     df_recur = pd.DataFrame(FIXED_DATA["recurring"])
     df_recur.index = range(1, len(df_recur) + 1)
     st.table(df_recur)
     
-    # (2) 실시간 자산 현황
     st.subheader("통합 자산 관리")
     df_assets = load_csv("Assets")
     a_rows = []
     
-    # 시트 데이터 안전하게 로드
     if not df_assets.empty and "항목" in df_assets.columns:
         for _, row in df_assets.iterrows():
-            a_rows.append({"분류": "금융", "항목": row['항목'], "평가액": f"{row['금액']:,}원", "비고": "기초잔액"})
-    else:
-        st.warning("Assets 탭의 데이터를 읽을 수 없습니다. (항목, 금액 컬럼 확인 필요)")
-
-    # 금/주식/코인 데이터 추가
+            # 숫자가 아닌 경우 0으로 처리하여 에러 방지
+            try: val = int(row['금액'])
+            except: val = 0
+            a_rows.append({"분류": "금융", "항목": row['항목'], "평가액": f"{val:,}원", "비고": "기초잔액"})
+    
     g_qty = 16.0
     a_rows.append({"분류": "귀금속", "항목": "순금(16g)", "평가액": f"{int(g_qty * live['gold']):,}원", "비고": "시세반영"})
     for n, i in FIXED_DATA["stocks"].items():
@@ -161,8 +161,8 @@ elif menu == "자산/투자/가계부":
     st.table(df_report)
 
 elif menu == "재고/생활관리":
-    c1, c2 = st.columns(2)
-    with c1:
+    col1, col2 = st.columns(2)
+    with col1:
         st.subheader("소모품 교체 주기")
         l_rows = []
         now_kr = datetime.utcnow() + timedelta(hours=9)
@@ -172,7 +172,7 @@ elif menu == "재고/생활관리":
         df_l = pd.DataFrame(l_rows)
         df_l.index = range(1, len(df_l) + 1)
         st.table(df_l)
-    with c2:
+    with col2:
         st.subheader("주방 재고 리스트")
         df_k = pd.DataFrame([{"구분": k, "내용": v} for k, v in FIXED_DATA["kitchen"].items()])
         df_k.index = range(1, len(df_k) + 1)
