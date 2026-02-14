@@ -6,10 +6,16 @@ from datetime import datetime
 
 # --- [1. 시스템 설정] ---
 SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
-GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532"}
+# GID 맵 (구글 시트의 각 탭 GID 확인 필요)
+GID_MAP = {
+    "Log": "1716739583", 
+    "Finance": "1790876407",  # 재무 기록용 시트
+    "Assets": "1666800532",   # 자산 현황용 시트
+    "Health": "123456789"     # 식단/건강 기록용 시트 (실제 GID로 수정)
+}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# [이미지 기준] 일일 권장 가이드 수정 (2900kcal 기준 비율 조정)
+# 일일 권장 가이드 (2900kcal 기준)
 DAILY_GUIDE = {
     "칼로리": {"val": 2900.0, "unit": "kcal"},
     "지방": {"val": 90.0, "unit": "g"},
@@ -37,12 +43,17 @@ def to_numeric(val):
     try: return int(float(str(val).replace(',', '').replace('원', '').strip()))
     except: return 0
 
-def get_weather():
-    # 평택 기준 샘플 날씨 (실제 API 연동 시 코정 가능)
-    return "🌡️ 8°C | ☀️ 맑음"
+def get_weather(): return "🌡️ 8°C | ☀️ 맑음"
 
-def send_to_sheet(d_type, item, value):
-    payload = {"time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'), "type": d_type, "item": item, "value": value}
+def send_to_sheet(d_type, item, value, corpus="Log"):
+    # corpus 인자를 통해 Finance 혹은 Health 시트로 분리 전송
+    payload = {
+        "time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 
+        "corpus": corpus, 
+        "type": d_type, 
+        "item": item, 
+        "value": value
+    }
     try:
         res = requests.post(API_URL, data=json.dumps(payload), timeout=5)
         return res.status_code == 200
@@ -55,9 +66,8 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [3. 메인 설정 및 상단 바] ---
-st.set_page_config(page_title="JARVIS v35.2", layout="wide")
+st.set_page_config(page_title="JARVIS v35.3", layout="wide")
 
-# 상단 공통 정보 바
 t_c1, t_c2 = st.columns([7, 3])
 with t_c1:
     st.markdown(f"### 🗓️ {datetime.now().strftime('%Y년 %m월 %d일')} | {get_weather()}")
@@ -70,10 +80,10 @@ with st.sidebar:
     st.title("JARVIS 제어 센터")
     menu = st.radio("메뉴 선택", ["투자 & 자산", "식단 & 건강", "재고 관리"])
     
+    # 식단 입력 인터페이스
     if menu == "식단 & 건강":
         st.subheader("🍏 영양소 입력 (정밀)")
         in_w = st.number_input("체중(kg)", 0.0, 200.0, 125.0, step=0.01, format="%.2f")
-        # [이미지 순서 반영] 지방 -> 콜레스테롤 -> 나트륨 -> 탄수화물 -> 식이섬유 -> 당 -> 단백질
         in_kcal = st.number_input("칼로리 (kcal)", 0.0, format="%.2f")
         in_fat = st.number_input("지방 (g)", 0.0, format="%.2f")
         in_chol = st.number_input("콜레스테롤 (mg)", 0.0, format="%.2f")
@@ -86,15 +96,33 @@ with st.sidebar:
         if st.button("영양 데이터 전송 및 리셋"):
             nutri_map = {"칼로리": in_kcal, "지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "탄수화물": in_carb, "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot}
             for k, v in nutri_map.items():
-                if v > 0: send_to_sheet("식단", k, v)
-            send_to_sheet("건강", "체중", in_w)
-            st.success("기록 완료 및 입력창 리셋!")
+                if v > 0: send_to_sheet("식단", k, v, corpus="Health") # Health 시트로 분리
+            send_to_sheet("건강", "체중", in_w, corpus="Health")
+            st.success("식단 기록 완료!")
             st.rerun()
 
 # --- [4. 메인 화면 로직] ---
 if menu == "투자 & 자산":
     st.header("💰 투자 및 종합 자산 관리")
-    # (자산 로직 생략 없이 고정 유지)
+    
+    # [복구] 재무 활동 기록 입력칸
+    st.markdown('<div class="input-card">', unsafe_allow_html=True)
+    st.subheader("📝 오늘의 재무 활동 기록")
+    f_c1, f_c2, f_c3, f_c4 = st.columns([1, 2, 2, 1])
+    with f_c1: t_choice = st.selectbox("구분", ["지출", "수입"])
+    with f_c2: 
+        cats = ["식비(집밥)", "식비(외식)", "식비(배달)", "식비(편의점)", "생활용품", "건강/의료", "기호품", "주거/통신", "교통/차량", "금융/보험", "결혼준비", "경조사", "기타지출"] if t_choice == "지출" else ["급여", "금융소득", "기타"]
+        c_choice = st.selectbox("카테고리", cats)
+    with f_c3: a_input = st.number_input("금액(원)", min_value=0, step=1000)
+    with f_c4: 
+        st.write(""); st.write("")
+        if st.button("재무 기록하기"):
+            if a_input > 0 and send_to_sheet(t_choice, c_choice, a_input, corpus="Finance"): # Finance 시트로 분리
+                st.success("재무 기록 완료!")
+                st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # 자산 현황 테이블
     df_assets_sheet = load_sheet_data(GID_MAP["Assets"])
     if not df_assets_sheet.empty:
         df_assets_sheet.columns = ["항목", "금액"]; df_assets_sheet["val"] = df_assets_sheet["금액"].apply(to_numeric)
@@ -105,12 +133,12 @@ if menu == "투자 & 자산":
     df_total = pd.concat([df_assets_sheet, pd.DataFrame(inv_rows)], ignore_index=True)
     a_df = df_total[df_total["val"] >= 0].copy(); l_df = df_total[df_total["val"] < 0].copy()
     
-    c_a, c_l = st.columns(2)
-    with c_a:
-        st.subheader("자산 내역"); a_df.index = range(1, len(a_df)+1)
+    col_a, col_l = st.columns(2)
+    with col_a:
+        st.subheader("💰 자산 목록"); a_df.index = range(1, len(a_df)+1)
         st.table(a_df.assign(금액=a_df["val"].apply(format_krw))[["항목", "금액"]])
-    with c_l:
-        st.subheader("부채 내역"); l_df.index = range(1, len(l_df)+1)
+    with col_l:
+        st.subheader("📉 부채 목록"); l_df.index = range(1, len(l_df)+1)
         st.table(l_df.assign(금액=l_df["val"].apply(lambda x: format_krw(abs(x))))[["항목", "금액"]])
     st.markdown(f'<div class="net-wealth">종합 순자산: {format_krw(a_df["val"].sum() + l_df["val"].sum())}원</div>', unsafe_allow_html=True)
 
@@ -118,35 +146,31 @@ elif menu == "식단 & 건강":
     st.header("🥗 실시간 영양 분석 리포트")
     st.warning(f"🎯 목표: 5월 30일 결혼식 전 체중 감량 (현재: {in_w:.2f}kg)")
     
-    # 이미지 디자인 반영 대시보드
+    # 이미지 디자인 반영 (지방 ~ 단백질 순서)
     cur_nutri = {"지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "탄수화물": in_carb, "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot}
     
-    col1, col2 = st.columns([1, 1])
-    with col1:
+    c1, c2 = st.columns([1, 1])
+    with c1:
         st.subheader("🔥 칼로리 요약")
         rem_kcal = DAILY_GUIDE["칼로리"]["val"] - in_kcal
         st.metric("남은 칼로리", f"{rem_kcal:.0f} kcal", delta=f"-{in_kcal:.0f} 섭취")
         st.progress(min(in_kcal / DAILY_GUIDE["칼로리"]["val"], 1.0))
         
-    with col2:
-        st.subheader("📊 영양소 비율")
-        # 간단한 파이차트 형태 대신 수치 리스트 제공
+    with c2:
+        st.subheader("📊 영양소 상세")
         for name, val in cur_nutri.items():
             guide = DAILY_GUIDE[name]
-            st.write(f"**{name}**: {val:.2f}{guide['unit']} / {guide['val']}{guide['unit']}")
+            ratio = min(val / guide["val"], 1.0) if val > 0 else 0
+            st.write(f"**{name}**: {val:.2f}{guide['unit']} / {guide['val']}{guide['unit']} ({int(ratio*100)}%)")
+            st.progress(ratio)
 
 elif menu == "재고 관리":
-    st.header("📦 식자재 및 생활용품 관리")
+    st.header("📦 식자재 유통기한 관리")
     if 'inventory' not in st.session_state:
         st.session_state.inventory = pd.DataFrame([
             {"항목": "냉동 삼치", "수량": "4팩", "유통기한": "2026-05-10"},
             {"항목": "냉동닭다리살", "수량": "3팩단위", "유통기한": "2026-06-01"},
-            {"항목": "단백질 쉐이크", "수량": "9개", "유통기한": "2026-12-30"},
-            {"항목": "카무트/쌀 혼합", "수량": "2kg", "유통기한": "2026-10-20"},
-            {"항목": "토마토 페이스트", "수량": "10캔", "유통기한": "2027-05-15"},
-            {"항목": "나시고랭 소스", "수량": "1팩", "유통기한": "2026-11-20"},
-            {"항목": "김치 4종", "수량": "반포기내외", "유통기한": "-"},
-            {"항목": "당근/감자", "수량": "보유", "유통기한": "-"}
+            {"항목": "토마토 페이스트", "수량": "10캔", "유통기한": "2027-05-15"}
         ])
     st.data_editor(st.session_state.inventory, num_rows="dynamic", use_container_width=True)
     
@@ -154,7 +178,6 @@ elif menu == "재고 관리":
     if 'supplies' not in st.session_state:
         st.session_state.supplies = pd.DataFrame([
             {"품목": "칫솔", "최근교체일": "2026-01-15", "주기(일)": 30},
-            {"품목": "면도날", "최근교체일": "2026-02-01", "주기(일)": 14},
             {"품목": "이불빨래", "최근교체일": "2026-02-08", "주기(일)": 14}
         ])
     st.table(st.session_state.supplies)
