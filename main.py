@@ -81,7 +81,12 @@ if menu == "투자 & 자산":
     st.markdown('<div class="input-card">', unsafe_allow_html=True)
     f_c1, f_c2, f_c3, f_c4 = st.columns([1, 2, 2, 1])
     with f_c1: t_choice = st.selectbox("구분", ["지출", "수입"])
-    with f_c2: cats = ["식비(집밥)", "식비(외식)", "식비(배달)", "식비(편의점)", "생활용품", "건강/의료", "기호품", "주거/통신", "교통/차량", "금융/보험", "결혼준비", "경조사", "기타지출"] if t_choice == "지출" else ["급여", "금융소득", "기타"]; c_choice = st.selectbox("카테고리", cats)
+    with f_c2:
+        if t_choice == "지출":
+            cats = ["식비(집밥)", "식비(외식)", "식비(배달)", "식비(편의점)", "생활용품", "건강/의료", "기호품", "주거/통신", "교통/차량", "금융/보험", "결혼준비", "경조사", "자산이동", "기타지출"]
+        else:
+            cats = ["급여", "금융소득", "자산이동", "기타"]
+        c_choice = st.selectbox("카테고리", cats)
     with f_c3: a_input = st.number_input("금액(원)", min_value=0, step=1000)
     with f_c4: 
         st.write(""); st.write("")
@@ -90,6 +95,7 @@ if menu == "투자 & 자산":
     st.markdown('</div>', unsafe_allow_html=True)
 
     # 자산 실시간 계산 로직 적용
+    # 자산 데이터와 Log 데이터를 불러와서 실시간 계산
     df_assets = load_sheet_data(GID_MAP["Assets"])
     df_log = load_sheet_data(GID_MAP["Log"])
     
@@ -97,27 +103,42 @@ if menu == "투자 & 자산":
         df_assets.columns = ["항목", "금액"]
         df_assets["val"] = df_assets["금액"].apply(to_numeric)
     
-    # Log 데이터를 활용한 가감 산출
-    log_diff = 0
+    # 실시간 변화량 변수
+    cash_diff = 0    # 통장 잔고 변화
+    card_debt = 0    # 카드값 부채 누적
+    
     if not df_log.empty:
         df_log.columns = ["날짜", "구분", "항목", "수치"]
-        incomes = df_log[df_log["구분"] == "수입"]["수치"].apply(to_numeric).sum()
-        expenses = df_log[df_log["구분"] == "지출"]["수치"].apply(to_numeric).sum()
-        log_diff = incomes - expenses
-
+        for _, row in df_log.iterrows():
+            val = to_numeric(row["수치"])
+            if row["구분"] == "지출":
+                if row["항목"] == "자산이동":
+                    cash_diff -= val  # 자산이동(카드값변제 등) 시 현금 감소
+                else:
+                    card_debt += val  # 일반 지출 시 카드값 부채 증가
+            elif row["구분"] == "수입":
+                if row["항목"] != "자산이동":
+                    cash_diff += val
+    
+    # 투자 자산 데이터 합치기
     inv_rows = []
     for cat, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
-        for name, info in items.items(): inv_rows.append({"항목": name, "val": info['평단'] * info['수량']})
+        for name, info in items.items():
+            inv_rows.append({"항목": name, "val": info['평단'] * info['수량']})
     
+    # 전체 자산 통합
     df_total = pd.concat([df_assets, pd.DataFrame(inv_rows)], ignore_index=True)
     
-    # 첫 번째 현금성 자산 항목에 Log 차액 반영
+    # 실시간 반영: 첫 번째 항목(현금/통장)에 변화량 더하기
     if not df_total.empty:
-        df_total.iloc[0, df_total.columns.get_loc("val")] += log_diff
-
+        df_total.iloc[0, df_total.columns.get_loc("val")] += cash_diff
+    
+    # 카드값 부채 항목 추가
+    if card_debt > 0:
+        df_total = pd.concat([df_total, pd.DataFrame([{"항목": "카드값(미결제)", "val": -card_debt}])], ignore_index=True)
+    
     a_df, l_df = df_total[df_total["val"] >= 0].copy(), df_total[df_total["val"] < 0].copy()
     sum_a, sum_l = a_df["val"].sum(), abs(l_df["val"].sum())
-    
     col_a, col_l = st.columns(2)
     with col_a:
         st.subheader("자산 내역"); a_df.index = range(1, len(a_df)+1)
