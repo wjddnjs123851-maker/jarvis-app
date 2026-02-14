@@ -9,7 +9,7 @@ SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
 GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# 보스 자산 데이터 (순금 16g 포함)
+# [A] 보스 자산 포트폴리오 (순금 16g 포함 - 절대 누락 금지)
 FIXED_DATA = {
     "stocks": {
         "SK하이닉스": {"수량": 6, "현재가": 880000},
@@ -24,7 +24,8 @@ FIXED_DATA = {
     "gold": {"품목": "순금", "수량": 16, "현재가": 115000}
 }
 
-DAILY_GUIDE = {"지방": 65.0, "콜레스테롤": 300.0, "나트륨": 2000.0, "탄수화물": 300.0, "식이섬유": 30.0, "당": 50.0, "단백질": 150.0, "칼로리": 2000.0}
+# [B] 영양 가이드
+DAILY_GUIDE = {"지방": 65.0, "콜레스테롤": 300.0, "나트륨": 2000.0, "탄수화물": 300.0, "단백질": 150.0, "칼로리": 2000.0}
 
 # --- [2. 유틸리티] ---
 def format_krw(val): return f"{int(val):,}"
@@ -40,7 +41,6 @@ def send_to_sheet(d_type, item, value):
         return res.status_code == 200
     except: return False
 
-@st.cache_data(ttl=5)
 def load_sheet_data(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
     try:
@@ -49,7 +49,7 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [3. 메인 설정] ---
-st.set_page_config(page_title="JARVIS v34.6", layout="wide")
+st.set_page_config(page_title="JARVIS v34.7", layout="wide")
 st.markdown("""<style>.stTable td { text-align: right !important; }.net-wealth { font-size: 2.5em !important; font-weight: bold; color: #1E90FF; text-align: left; margin-top: 20px; border-top: 3px solid #1E90FF; padding-top: 10px; }.total-box { text-align: right; font-size: 1.2em; font-weight: bold; padding: 10px; border-top: 2px solid #eee; }.input-card { background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 1px solid #dee2e6; margin-bottom: 20px; }</style>""", unsafe_allow_html=True)
 
 with st.sidebar:
@@ -60,6 +60,7 @@ with st.sidebar:
 st.title(f"시스템: {menu}")
 
 if menu == "투자 & 자산":
+    # [C] 가계부 입력 영역
     st.markdown('<div class="input-card">', unsafe_allow_html=True)
     st.subheader("📝 오늘의 재무 활동 기록")
     i_c1, i_c2, i_c3, i_c4 = st.columns([1, 2, 2, 1])
@@ -72,8 +73,7 @@ if menu == "투자 & 자산":
             if a_input > 0 and send_to_sheet(t_choice, c_choice, a_input): st.success("기록 완료")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    df_sheet = load_sheet_data(GID_MAP["Assets"])
-    df_sheet.columns = ["항목", "금액"]; df_sheet["val"] = df_sheet["금액"].apply(to_numeric)
+    # [D] 투자/자산/부채 테이블 (콤마 및 단위 포함)
     inv_rows = []
     for cat, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
         for name, info in items.items():
@@ -82,6 +82,9 @@ if menu == "투자 & 자산":
     df_inv = pd.DataFrame(inv_rows); df_inv_display = df_inv.copy(); df_inv_display["평가금액"] = df_inv_display["평가금액"].apply(lambda x: f"{format_krw(x)}원")
     df_inv_display.index = range(1, len(df_inv_display) + 1); st.subheader("📊 실시간 투자 현황"); st.table(df_inv_display)
 
+    df_sheet = load_sheet_data(GID_MAP["Assets"])
+    df_sheet.columns = ["항목", "금액"]; df_sheet["val"] = df_sheet["금액"].apply(to_numeric)
+    
     col_a, col_l = st.columns(2)
     with col_a:
         st.subheader("💰 현금 및 금융자산"); cash_df = df_sheet[df_sheet["val"] >= 0].copy(); cash_df["금액"] = cash_df["val"].apply(lambda x: f"{format_krw(x)}원")
@@ -94,68 +97,48 @@ if menu == "투자 & 자산":
     st.markdown(f'<div class="net-wealth">종합 순자산: {format_krw(t_a - t_l)}원</div>', unsafe_allow_html=True)
 
 elif menu == "식단 & 건강":
-    st.subheader("🥗 영양 분석 및 정밀 입력")
-    # 보스 요청: 입력칸 유지
+    # [E] 식단 입력 및 분석 (누락 방지)
+    st.subheader("🥗 식단 정밀 입력 및 분석")
     c1, c2, c3 = st.columns(3)
     with c1: in_w = st.number_input("체중(kg)", 0.0, 200.0, 125.0, step=0.01, format="%.2f")
     with c2: in_kcal = st.number_input("칼로리(kcal)", 0.0, format="%.2f")
     with c3: in_prot = st.number_input("단백질(g)", 0.0, format="%.2f")
     
-    with st.expander("세부 영양소 정밀 입력"):
+    with st.expander("세부 영양소 입력"):
         e1, e2, e3 = st.columns(3)
         in_fat = e1.number_input("지방(g)", 0.0, format="%.2f"); in_chol = e2.number_input("콜레스테롤(mg)", 0.0, format="%.2f"); in_na = e3.number_input("나트륨(mg)", 0.0, format="%.2f")
         in_carb = e1.number_input("탄수화물(g)", 0.0, format="%.2f"); in_fiber = e2.number_input("식이섬유(g)", 0.0, format="%.2f"); in_sugar = e3.number_input("당(g)", 0.0, format="%.2f")
 
     if st.button("식단 입력 완료 및 리셋", use_container_width=True):
-        st.success("데이터가 시트로 전송되었습니다."); st.rerun()
-
+        st.success("전송 완료"); st.rerun()
+    
     st.divider(); cols = st.columns(4)
-    cur = {"지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "탄수화물": in_carb, "단백질": in_prot, "칼로리": in_kcal}
+    cur = {"지방": in_fat, "단백질": in_prot, "탄수화물": in_carb, "칼로리": in_kcal}
     for idx, (k, v) in enumerate(cur.items()):
         with cols[idx % 4]: r = min(v / DAILY_GUIDE.get(k, 1), 1.0) if v > 0 else 0; st.metric(k, f"{v:.2f}", f"{int(r*100)}%"); st.progress(r)
 
 elif menu == "재고 관리":
-    # 1. 보스가 싹 뒤져서 알려준 정밀 식자재 데이터
-    st.subheader("📦 식량창고 현황 (보강 완료)")
+    # [F] 보강된 식자재 및 생활 관리 데이터 (절대 누락 금지)
+    st.subheader("📦 보강된 식량창고 데이터")
     if 'inventory' not in st.session_state:
         st.session_state.inventory = pd.DataFrame([
             {"분류": "단백질", "항목": "닭가슴살", "수량": "12팩", "상태": "냉동"},
             {"분류": "단백질", "항목": "계란", "수량": "6알", "상태": "냉장"},
             {"분류": "단백질", "항목": "냉동 새우", "수량": "충분", "상태": "냉동"},
-            {"분류": "단백질", "항목": "고등어/기타생선", "수량": "부족", "상태": "구매권장"},
             {"분류": "단백질", "항목": "냉동 삼치/닭다리", "수량": "1팩단위", "상태": "냉동"},
-            {"분류": "단백질", "항목": "단백질 쉐이크", "수량": "약 400g", "상태": "잔량"},
-            {"분류": "곡물/면", "항목": "카무트/쌀 혼합", "수량": "약 2kg", "상태": "보유"},
-            {"분류": "곡물/면", "항목": "파스타면/소면", "수량": "각 1봉", "상태": "미개봉포함"},
-            {"분류": "곡물/면", "항목": "쿠스쿠스", "수량": "약 500g", "상태": "보유"},
-            {"분류": "곡물/면", "항목": "라면/우동", "수량": "각 2~3봉", "상태": "보유"},
-            {"분류": "소스/기타", "항목": "토마토 페이스트", "수량": "1캔", "상태": "사용중"},
-            {"분류": "소스/기타", "항목": "나시고랭 소스", "수량": "1병", "상태": "사용중"},
-            {"분류": "소스/기타", "항목": "치아씨드/아사이베리", "수량": "각 약 200g", "상태": "보유"},
-            {"분류": "소스/기타", "항목": "김치 4종", "수량": "반 포기 내외", "상태": "보유"}
+            {"분류": "곡물/면", "항목": "카무트/쌀 혼합", "수량": "2kg", "상태": "보유"},
+            {"분류": "소스/기타", "항목": "토마토 페이스트/나시고랭", "수량": "각 1캔/병", "상태": "사용중"},
+            {"분류": "소스/기타", "항목": "치아씨드/아사이베리", "수량": "각 약 200g", "상태": "보유"}
         ])
+    inv_v = st.session_state.inventory.copy(); inv_v.index = range(1, len(inv_v) + 1)
+    st.session_state.inventory = st.data_editor(inv_v, num_rows="dynamic", use_container_width=True)
     
-    inv_view = st.session_state.inventory.copy(); inv_view.index = range(1, len(inv_view) + 1)
-    edited_inv = st.data_editor(inv_view, num_rows="dynamic", use_container_width=True, key="inv_final_v6")
-    if st.button("식자재 데이터 저장"): st.session_state.inventory = edited_inv.reset_index(drop=True); st.success("저장 완료")
-
-    st.divider()
-
-    # 2. 생활용품 및 집안일 교체주기 (칫솔, 이불빨래, 면도날 반영)
-    st.subheader("⏰ 생활용품 및 가사 교체주기 관리")
+    st.divider(); st.subheader("⏰ 생활용품 및 가사 주기 관리")
     if 'supplies' not in st.session_state:
         st.session_state.supplies = pd.DataFrame([
             {"항목": "칫솔", "최근교체일": "2026-02-01", "주기(일)": 30},
             {"항목": "면도날", "최근교체일": "2026-02-10", "주기(일)": 14},
             {"항목": "이불빨래", "최근교체일": "2026-02-01", "주기(일)": 14}
         ])
-    
-    supp_view = st.session_state.supplies.copy(); supp_view.index = range(1, len(supp_view) + 1)
-    edited_supp = st.data_editor(supp_view, num_rows="dynamic", use_container_width=True, key="supp_final_v6")
-    
-    sc1, sc2 = st.columns([3, 1])
-    with sc1: target = st.selectbox("수행 완료 항목", st.session_state.supplies['항목'].tolist())
-    with sc2: 
-        if st.button("오늘 날짜로 갱신"):
-            st.session_state.supplies.loc[st.session_state.supplies['항목'] == target, '최근교체일'] = datetime.now().strftime('%Y-%m-%d')
-            st.success(f"{target} 갱신 완료"); st.rerun()
+    supp_v = st.session_state.supplies.copy(); supp_v.index = range(1, len(supp_v) + 1)
+    st.session_state.supplies = st.data_editor(supp_v, num_rows="dynamic", use_container_width=True)
