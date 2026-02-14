@@ -77,7 +77,9 @@ with st.sidebar:
 
 # --- [4. 메인 화면 로직] ---
 if menu == "투자 & 자산":
-    st.header("투자 및 종합 자산 관리")
+    st.header("💰 투자 및 종합 자산 관리")
+    
+    # 1. 입력 카드 (디자인 개선)
     st.markdown('<div class="input-card">', unsafe_allow_html=True)
     f_c1, f_c2, f_c3, f_c4 = st.columns([1, 2, 2, 1])
     with f_c1: t_choice = st.selectbox("구분", ["지출", "수입"])
@@ -94,79 +96,141 @@ if menu == "투자 & 자산":
             if a_input > 0 and send_to_sheet(t_choice, c_choice, a_input, corpus="Finance"): st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 자산 실시간 계산 로직 적용
-    # 자산 데이터와 Log 데이터를 불러와서 실시간 계산
-    df_assets = load_sheet_data(GID_MAP["Assets"])
+    # 2. 자산 계산 (Try-Except 방어력 강화)
+    try:
+        df_assets = load_sheet_data(GID_MAP["Assets"])
+        df_log = load_sheet_data(GID_MAP["Log"])
+        
+        if not df_assets.empty:
+            df_assets.columns = ["항목", "금액"]
+            df_assets["val"] = df_assets["금액"].apply(to_numeric)
+        
+        cash_diff, card_debt = 0, 0
+        if not df_log.empty:
+            df_log.columns = ["날짜", "구분", "항목", "수치"]
+            for _, row in df_log.iterrows():
+                val = to_numeric(row["수치"])
+                if row["구분"] == "지출":
+                    if row["항목"] == "자산이동": cash_diff -= val
+                    else: card_debt += val
+                elif row["구분"] == "수입":
+                    if row["항목"] != "자산이동": cash_diff += val
+
+        inv_rows = []
+        for cat, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
+            for name, info in items.items(): inv_rows.append({"항목": name, "val": info['평단'] * info['수량']})
+        
+        df_total = pd.concat([df_assets, pd.DataFrame(inv_rows)], ignore_index=True)
+        if not df_total.empty: df_total.iloc[0, df_total.columns.get_loc("val")] += cash_diff
+        if card_debt > 0: df_total = pd.concat([df_total, pd.DataFrame([{"항목": "카드값(미결제)", "val": -card_debt}])], ignore_index=True)
+
+        a_df, l_df = df_total[df_total["val"] >= 0].copy(), df_total[df_total["val"] < 0].copy()
+        sum_a, sum_l = a_df["val"].sum(), abs(l_df["val"].sum())
+        
+        # 3. 레이아웃 및 시각화
+        col_a, col_l = st.columns(2)
+        with col_a:
+            st.subheader("📈 자산 (Assets)")
+            a_df.index = range(1, len(a_df)+1)
+            st.table(a_df.assign(금액=a_df["val"].apply(format_krw))[["항목", "금액"]])
+            st.markdown(f'<div class="total-display">자산총계: {format_krw(sum_a)}</div>', unsafe_allow_html=True)
+            
+            # [시각화] 자산 구성 바 차트
+            st.bar_chart(a_df.set_index("항목")["val"], color="#4CAF50") # 초록색
+            
+        with col_l:
+            st.subheader("📉 부채 (Liabilities)")
+            l_df.index = range(1, len(l_df)+1)
+            st.table(l_df.assign(금액=l_df["val"].apply(lambda x: format_krw(abs(x))))[["항목", "금액"]])
+            st.markdown(f'<div class="total-display" style="color:#e03131;">부채총계: {format_krw(sum_l)}</div>', unsafe_allow_html=True)
+            
+        st.markdown(f'<div class="net-wealth">💎 종합 순자산: {format_krw(sum_a - sum_l)}</div>', unsafe_allow_html=True)
+
+    except Exception as e:
+        st.error(f"자산 데이터 처리 중 오류가 발생했습니다: {e}")
+elif menu == "식단 & 건강":
+    st.header("🥗 실시간 영양 분석 리포트")
+    
+    # [방어 로직] 날짜 계산 에러 방지
+    try:
+        d_day = (datetime(2026, 5, 30) - datetime.now()).days
+    except:
+        d_day = 0 # 에러 시 기본값
+        
+    st.info(f"💍 결혼식까지 D-{d_day} | 현재 체중 125.00kg 기준 감량 모드")
+
+    # 1. 체중 변화 그래프 (시각화 추가)
+    st.subheader("📉 체중 변화 추세")
     df_log = load_sheet_data(GID_MAP["Log"])
     
-    if not df_assets.empty:
-        df_assets.columns = ["항목", "금액"]
-        df_assets["val"] = df_assets["금액"].apply(to_numeric)
+    if not df_log.empty:
+        try:
+            # 로그에서 '건강' 타입의 '체중' 데이터만 추출
+            df_log.columns = ["날짜", "구분", "항목", "수치"]
+            w_df = df_log[(df_log["구분"] == "건강") & (df_log["항목"] == "체중")].copy()
+            
+            if not w_df.empty:
+                w_df["날짜"] = pd.to_datetime(w_df["날짜"])
+                w_df["수치"] = w_df["수치"].apply(to_numeric)
+                w_df = w_df.sort_values("날짜")
+                
+                # 그래프 그리기 (날짜를 인덱스로)
+                chart_data = w_df.set_index("날짜")[["수치"]]
+                st.line_chart(chart_data, color="#FF4B4B") # 빨간색 그래프
+            else:
+                st.caption("아직 기록된 체중 데이터가 없습니다.")
+        except Exception as e:
+            st.error(f"그래프 로딩 중 오류 발생: {e}")
+
+    # 2. 영양소 상세 (기존 유지 + 방어력 강화)
+    cur_nutri = {"지방": 0, "콜레스테롤": 0, "나트륨": 0, "탄수화물": 0, "식이섬유": 0, "당": 0, "단백질": 0}
     
-    # 실시간 변화량 변수
-    cash_diff = 0    # 통장 잔고 변화
-    card_debt = 0    # 카드값 부채 누적
+    # Log 데이터에서 오늘 먹은 영양소 합산 로직 (에러 방지 적용)
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    current_kcal = 0
     
     if not df_log.empty:
-        df_log.columns = ["날짜", "구분", "항목", "수치"]
-        for _, row in df_log.iterrows():
-            val = to_numeric(row["수치"])
-            if row["구분"] == "지출":
-                if row["항목"] == "자산이동":
-                    cash_diff -= val  # 자산이동(카드값변제 등) 시 현금 감소
-                else:
-                    card_debt += val  # 일반 지출 시 카드값 부채 증가
-            elif row["구분"] == "수입":
-                if row["항목"] != "자산이동":
-                    cash_diff += val
-    
-    # 투자 자산 데이터 합치기
-    inv_rows = []
-    for cat, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
-        for name, info in items.items():
-            inv_rows.append({"항목": name, "val": info['평단'] * info['수량']})
-    
-    # 전체 자산 통합
-    df_total = pd.concat([df_assets, pd.DataFrame(inv_rows)], ignore_index=True)
-    
-    # 실시간 반영: 첫 번째 항목(현금/통장)에 변화량 더하기
-    if not df_total.empty:
-        df_total.iloc[0, df_total.columns.get_loc("val")] += cash_diff
-    
-    # 카드값 부채 항목 추가
-    if card_debt > 0:
-        df_total = pd.concat([df_total, pd.DataFrame([{"항목": "카드값(미결제)", "val": -card_debt}])], ignore_index=True)
-    
-    a_df, l_df = df_total[df_total["val"] >= 0].copy(), df_total[df_total["val"] < 0].copy()
-    sum_a, sum_l = a_df["val"].sum(), abs(l_df["val"].sum())
-    col_a, col_l = st.columns(2)
-    with col_a:
-        st.subheader("자산 내역"); a_df.index = range(1, len(a_df)+1)
-        st.table(a_df.assign(금액=a_df["val"].apply(format_krw))[["항목", "금액"]])
-        st.markdown(f'<div class="total-display">자산총계: {format_krw(sum_a)}</div>', unsafe_allow_html=True)
-    with col_l:
-        st.subheader("부채 내역"); l_df.index = range(1, len(l_df)+1)
-        st.table(l_df.assign(금액=l_df["val"].apply(lambda x: format_krw(abs(x))))[["항목", "금액"]])
-        st.markdown(f'<div class="total-display" style="color:#e03131;">부채총계: {format_krw(sum_l)}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="net-wealth">종합 순자산: {format_krw(sum_a - sum_l)}</div>', unsafe_allow_html=True)
+        try:
+            # 날짜 필터링 (오늘 날짜만)
+            df_today = df_log[df_log['날짜'].astype(str).str.contains(today_str, na=False)]
+            # 칼로리 합산
+            k_df = df_today[(df_today['구분'] == '식단') & (df_today['항목'] == '칼로리')]
+            current_kcal = k_df['수치'].apply(to_numeric).sum()
+        except:
+            pass
 
-elif menu == "식단 & 건강":
-    st.header("실시간 영양 분석 리포트")
-    # (기존 식단 로직 전체 유지)
-    st.warning(f"목표: 5월 30일 결혼식 전 체중 감량 (현재: 125.00kg)")
-    cur_nutri = {"지방": 0, "콜레스테롤": 0, "나트륨": 0, "탄수화물": 0, "식이섬유": 0, "당": 0, "단백질": 0}
     c1, c2 = st.columns([1, 1])
     with c1:
-        st.subheader("칼로리 요약")
-        rem_kcal = DAILY_GUIDE["칼로리"]["val"]
-        st.metric("남은 칼로리", f"{rem_kcal:.0f} kcal", delta="-0 섭취")
-        st.progress(0.0)
+        st.subheader("🔥 칼로리 요약")
+        rem_kcal = DAILY_GUIDE["칼로리"]["val"] - current_kcal
+        st.metric("남은 칼로리", f"{rem_kcal:.0f} kcal", delta=f"-{current_kcal:.0f} 섭취")
+        
+        # 진행률 바 (100% 넘어도 에러 안 나게 방어)
+        progress = min(current_kcal / DAILY_GUIDE["칼로리"]["val"], 1.0)
+        st.progress(progress)
+        
     with c2:
-        st.subheader("영양소 상세")
+        st.subheader("📊 영양소 상세")
+        # (FatSecret 연동 전이라 0으로 표시되지만 구조는 유지)
         for name, val in cur_nutri.items():
-            guide = DAILY_GUIDE[name]; ratio = 0
+            guide = DAILY_GUIDE[name]
             st.write(f"**{name}**: {val:.2f}{guide['unit']} / {guide['val']}{guide['unit']} (0%)")
             st.progress(0.0)
+
+    # 3. 수동 입력 (입력 피로도 감소를 위한 배치)
+    st.divider()
+    st.subheader("📝 간편 기록")
+    with st.form("quick_input"):
+        c_in1, c_in2, c_in3 = st.columns(3)
+        with c_in1: in_w = st.number_input("현재 체중(kg)", 0.0, 200.0, 125.0, step=0.1)
+        with c_in2: in_k = st.number_input("섭취 칼로리(kcal)", 0.0, step=10.0)
+        with c_in3: in_p = st.number_input("섭취 단백질(g)", 0.0, step=1.0)
+        
+        if st.form_submit_button("기록 저장"):
+            if in_w > 0: send_to_sheet("건강", "체중", in_w, corpus="Health")
+            if in_k > 0: send_to_sheet("식단", "칼로리", in_k, corpus="Health")
+            if in_p > 0: send_to_sheet("식단", "단백질", in_p, corpus="Health")
+            st.rerun()
 
 elif menu == "재고 관리":
     st.header("📦 식자재 및 생활용품 관리")
