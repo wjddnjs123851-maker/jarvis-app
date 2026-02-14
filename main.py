@@ -9,7 +9,7 @@ SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
 GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532", "Health": "123456789"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# 일일 권장 가이드 (데이터 보존)
+# 데이터 보존 (식단 가이드 & 자산 정보)
 DAILY_GUIDE = {
     "칼로리": {"val": 2900.0, "unit": "kcal"}, "지방": {"val": 90.0, "unit": "g"},
     "콜레스테롤": {"val": 300.0, "unit": "mg"}, "나트륨": {"val": 2300.0, "unit": "mg"},
@@ -17,7 +17,6 @@ DAILY_GUIDE = {
     "당": {"val": 50.0, "unit": "g"}, "단백질": {"val": 160.0, "unit": "g"}
 }
 
-# 투자 자산 데이터 (데이터 보존)
 FIXED_DATA = {
     "stocks": {
         "삼성전자": {"평단": 78895, "수량": 46}, "SK하이닉스": {"평단": 473521, "수량": 6},
@@ -28,7 +27,7 @@ FIXED_DATA = {
     }
 }
 
-# --- [2. 유틸리티] ---
+# --- [2. 유틸리티 함수] ---
 def format_krw(val): return f"{int(val):,}" + "원"
 def to_numeric(val):
     try: return int(float(str(val).replace(',', '').replace('원', '').strip()))
@@ -45,41 +44,36 @@ def load_sheet_data(gid):
     try: return pd.read_csv(url).dropna(how='all').reset_index(drop=True)
     except: return pd.DataFrame()
 
-# --- [3. 메인 설정 및 상단 바] ---
-st.set_page_config(page_title="JARVIS v35.8", layout="wide")
-t_c1, t_c2 = st.columns([7, 3])
-with t_c1: st.markdown(f"### {datetime.now().strftime('%Y-%m-%d')} | 8°C 맑음")
-with t_c2: st.markdown("<div style='text-align:right;'>SYSTEM STATUS: ONLINE</div>", unsafe_allow_html=True)
+# --- [3. 메인 화면 구성] ---
+st.set_page_config(page_title="JARVIS v36.0", layout="wide")
 
-st.markdown("""<style>.stTable td { text-align: right !important; }.total-display { text-align: right; font-size: 1.3em; font-weight: bold; padding: 15px; background: #f1f3f5; border-radius: 5px; margin-top: 5px; }.net-wealth { font-size: 2.5em !important; font-weight: bold; color: #1E90FF; text-align: left; margin-top: 25px; border-top: 3px solid #1E90FF; padding-top: 10px; }.input-card { background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 1px solid #dee2e6; margin-bottom: 20px; }</style>""", unsafe_allow_html=True)
+# 스타일 적용 (표 너비 최적화 & 간격 조정)
+st.markdown("""
+    <style>
+    .stTable td { text-align: right !important; }
+    .total-display { text-align: right; font-size: 1.3em; font-weight: bold; padding: 15px; background: #f1f3f5; border-radius: 5px; margin-top: 5px; }
+    .net-wealth { font-size: 2.5em !important; font-weight: bold; color: #1E90FF; text-align: left; margin-top: 25px; border-top: 3px solid #1E90FF; padding-top: 10px; }
+    .input-card { background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 1px solid #dee2e6; margin-bottom: 20px; }
+    [data-testid="stHorizontalBlock"] { gap: 2rem; }
+    .stDataEditor { border: 1px solid #f0f2f6; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+""", unsafe_allow_html=True)
+
+t_c1, t_c2 = st.columns([7, 3])
+with t_c1: st.markdown(f"### {datetime.now().strftime('%Y-%m-%d')} | 🌡️ 8°C ☀️ 맑음")
+with t_c2: st.markdown("<div style='text-align:right;'><b>SYSTEM STATUS: ONLINE (v36.0)</b></div>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.title("JARVIS 제어 센터")
     menu = st.radio("메뉴 선택", ["투자 & 자산", "식단 & 건강", "재고 관리"])
-    # [식단 & 건강 입력창 유지]
-    if menu == "식단 & 건강":
-        st.subheader("영양소 입력")
-        in_w = st.number_input("체중(kg)", 0.0, 200.0, 125.0, step=0.01, format="%.2f")
-        in_kcal = st.number_input("칼로리 (kcal)", 0.0, format="%.2f")
-        in_fat = st.number_input("지방 (g)", 0.0, format="%.2f")
-        in_chol = st.number_input("콜레스테롤 (mg)", 0.0, format="%.2f")
-        in_na = st.number_input("나트륨 (mg)", 0.0, format="%.2f")
-        in_carb = st.number_input("탄수화물 (g)", 0.0, format="%.2f")
-        in_fiber = st.number_input("식이섬유 (g)", 0.0, format="%.2f")
-        in_sugar = st.number_input("당 (g)", 0.0, format="%.2f")
-        in_prot = st.number_input("단백질 (g)", 0.0, format="%.2f")
-        if st.button("데이터 전송 및 리셋"):
-            nutri_map = {"칼로리": in_kcal, "지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "탄수화물": in_carb, "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot}
-            for k, v in nutri_map.items(): 
-                if v > 0: send_to_sheet("식단", k, v, corpus="Health")
-            send_to_sheet("건강", "체중", in_w, corpus="Health")
-            st.rerun()
 
-# --- [4. 메인 화면 로직] ---
+# --- [4. 탭별 로직] ---
+
+# === 탭 1: 투자 & 자산 ===
 if menu == "투자 & 자산":
     st.header("💰 투자 및 종합 자산 관리")
     
-    # 1. 입력 카드 (디자인 개선)
+    # 입력 폼
     st.markdown('<div class="input-card">', unsafe_allow_html=True)
     f_c1, f_c2, f_c3, f_c4 = st.columns([1, 2, 2, 1])
     with f_c1: t_choice = st.selectbox("구분", ["지출", "수입"])
@@ -96,7 +90,7 @@ if menu == "투자 & 자산":
             if a_input > 0 and send_to_sheet(t_choice, c_choice, a_input, corpus="Finance"): st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 2. 자산 계산 (Try-Except 방어력 강화)
+    # 데이터 로드 및 계산 (에러 방지)
     try:
         df_assets = load_sheet_data(GID_MAP["Assets"])
         df_log = load_sheet_data(GID_MAP["Log"])
@@ -127,16 +121,14 @@ if menu == "투자 & 자산":
         a_df, l_df = df_total[df_total["val"] >= 0].copy(), df_total[df_total["val"] < 0].copy()
         sum_a, sum_l = a_df["val"].sum(), abs(l_df["val"].sum())
         
-        # 3. 레이아웃 및 시각화
         col_a, col_l = st.columns(2)
         with col_a:
             st.subheader("📈 자산 (Assets)")
             a_df.index = range(1, len(a_df)+1)
             st.table(a_df.assign(금액=a_df["val"].apply(format_krw))[["항목", "금액"]])
             st.markdown(f'<div class="total-display">자산총계: {format_krw(sum_a)}</div>', unsafe_allow_html=True)
-            
-            # [시각화] 자산 구성 바 차트
-            st.bar_chart(a_df.set_index("항목")["val"], color="#4CAF50") # 초록색
+            # 자산 구성 그래프
+            st.bar_chart(a_df.set_index("항목")["val"], color="#4CAF50")
             
         with col_l:
             st.subheader("📉 부채 (Liabilities)")
@@ -147,77 +139,56 @@ if menu == "투자 & 자산":
         st.markdown(f'<div class="net-wealth">💎 종합 순자산: {format_krw(sum_a - sum_l)}</div>', unsafe_allow_html=True)
 
     except Exception as e:
-        st.error(f"자산 데이터 처리 중 오류가 발생했습니다: {e}")
+        st.error(f"데이터 처리 중 문제가 발생했습니다 (일시적 오류): {e}")
+
+# === 탭 2: 식단 & 건강 ===
 elif menu == "식단 & 건강":
     st.header("🥗 실시간 영양 분석 리포트")
     
-    # [방어 로직] 날짜 계산 에러 방지
     try:
         d_day = (datetime(2026, 5, 30) - datetime.now()).days
-    except:
-        d_day = 0 # 에러 시 기본값
-        
+    except: d_day = 0
     st.info(f"💍 결혼식까지 D-{d_day} | 현재 체중 125.00kg 기준 감량 모드")
 
-    # 1. 체중 변화 그래프 (시각화 추가)
+    # 체중 추세 그래프
     st.subheader("📉 체중 변화 추세")
-    df_log = load_sheet_data(GID_MAP["Log"])
-    
-    if not df_log.empty:
-        try:
-            # 로그에서 '건강' 타입의 '체중' 데이터만 추출
+    try:
+        df_log = load_sheet_data(GID_MAP["Log"])
+        if not df_log.empty:
             df_log.columns = ["날짜", "구분", "항목", "수치"]
             w_df = df_log[(df_log["구분"] == "건강") & (df_log["항목"] == "체중")].copy()
-            
             if not w_df.empty:
                 w_df["날짜"] = pd.to_datetime(w_df["날짜"])
                 w_df["수치"] = w_df["수치"].apply(to_numeric)
-                w_df = w_df.sort_values("날짜")
-                
-                # 그래프 그리기 (날짜를 인덱스로)
-                chart_data = w_df.set_index("날짜")[["수치"]]
-                st.line_chart(chart_data, color="#FF4B4B") # 빨간색 그래프
-            else:
-                st.caption("아직 기록된 체중 데이터가 없습니다.")
-        except Exception as e:
-            st.error(f"그래프 로딩 중 오류 발생: {e}")
+                st.line_chart(w_df.set_index("날짜")[["수치"]].sort_index(), color="#FF4B4B")
+            else: st.caption("아직 기록된 체중 데이터가 없습니다.")
+    except: st.warning("그래프를 불러오는 중입니다...")
 
-    # 2. 영양소 상세 (기존 유지 + 방어력 강화)
+    # 영양소 요약
     cur_nutri = {"지방": 0, "콜레스테롤": 0, "나트륨": 0, "탄수화물": 0, "식이섬유": 0, "당": 0, "단백질": 0}
-    
-    # Log 데이터에서 오늘 먹은 영양소 합산 로직 (에러 방지 적용)
     today_str = datetime.now().strftime('%Y-%m-%d')
     current_kcal = 0
     
     if not df_log.empty:
         try:
-            # 날짜 필터링 (오늘 날짜만)
             df_today = df_log[df_log['날짜'].astype(str).str.contains(today_str, na=False)]
-            # 칼로리 합산
             k_df = df_today[(df_today['구분'] == '식단') & (df_today['항목'] == '칼로리')]
             current_kcal = k_df['수치'].apply(to_numeric).sum()
-        except:
-            pass
+        except: pass
 
     c1, c2 = st.columns([1, 1])
     with c1:
         st.subheader("🔥 칼로리 요약")
         rem_kcal = DAILY_GUIDE["칼로리"]["val"] - current_kcal
         st.metric("남은 칼로리", f"{rem_kcal:.0f} kcal", delta=f"-{current_kcal:.0f} 섭취")
-        
-        # 진행률 바 (100% 넘어도 에러 안 나게 방어)
-        progress = min(current_kcal / DAILY_GUIDE["칼로리"]["val"], 1.0)
-        st.progress(progress)
-        
+        st.progress(min(current_kcal / DAILY_GUIDE["칼로리"]["val"], 1.0))
     with c2:
         st.subheader("📊 영양소 상세")
-        # (FatSecret 연동 전이라 0으로 표시되지만 구조는 유지)
         for name, val in cur_nutri.items():
             guide = DAILY_GUIDE[name]
             st.write(f"**{name}**: {val:.2f}{guide['unit']} / {guide['val']}{guide['unit']} (0%)")
             st.progress(0.0)
 
-    # 3. 수동 입력 (입력 피로도 감소를 위한 배치)
     st.divider()
     st.subheader("📝 간편 기록")
     with st.form("quick_input"):
@@ -225,27 +196,17 @@ elif menu == "식단 & 건강":
         with c_in1: in_w = st.number_input("현재 체중(kg)", 0.0, 200.0, 125.0, step=0.1)
         with c_in2: in_k = st.number_input("섭취 칼로리(kcal)", 0.0, step=10.0)
         with c_in3: in_p = st.number_input("섭취 단백질(g)", 0.0, step=1.0)
-        
         if st.form_submit_button("기록 저장"):
             if in_w > 0: send_to_sheet("건강", "체중", in_w, corpus="Health")
             if in_k > 0: send_to_sheet("식단", "칼로리", in_k, corpus="Health")
             if in_p > 0: send_to_sheet("식단", "단백질", in_p, corpus="Health")
             st.rerun()
 
+# === 탭 3: 재고 관리 ===
 elif menu == "재고 관리":
     st.header("📦 식자재 및 생활용품 관리")
-    
-    # [스타일링] 표 간격 조정 및 테두리 적용
-    st.markdown("""
-        <style>
-        [data-testid="stHorizontalBlock"] { gap: 2rem; }
-        </style>
-    """, unsafe_allow_html=True)
-
-    # 화면 5:5 분할
     col_left, col_right = st.columns([1, 1])
     
-    # --- 왼쪽: 식재료 현황 ---
     with col_left:
         st.subheader("🛒 식재료 현황")
         if 'inventory' not in st.session_state:
@@ -259,14 +220,11 @@ elif menu == "재고 관리":
                 {"항목": "김치 4종", "수량": "보유", "유통기한": "-"}, {"항목": "당근", "수량": "보유", "유통기한": "-"}, {"항목": "감자", "수량": "보유", "유통기한": "-"}
             ])
         inv_df = st.session_state.inventory.copy()
-        # 인덱스 깔끔하게 정리 (1부터 시작)
         inv_df.index = range(1, len(inv_df) + 1)
         st.data_editor(inv_df, num_rows="dynamic", use_container_width=True)
 
-    # --- 오른쪽: 생활용품 교체 ---
     with col_right:
         st.subheader("⏰ 생활용품 교체")
-        # 데이터 초기화 (열 이름 통일: '주기'로 고정)
         if 'supplies' not in st.session_state:
             st.session_state.supplies = pd.DataFrame([
                 {"품목": "칫솔(보스)", "최근교체일": "2026-01-15", "주기": 30}, 
@@ -277,28 +235,13 @@ elif menu == "재고 관리":
             ])
         
         sup_df = st.session_state.supplies.copy()
-        
-        # [핵심 수정] 에러 방지 로직
-        # 데이터가 꼬여서 열 이름이 다르거나 날짜 형식이 틀려도 멈추지 않게 처리
         try:
             sup_df['최근교체일'] = pd.to_datetime(sup_df['최근교체일'], errors='coerce')
-            # '주기' 컬럼이 없으면 30일로 기본 설정 (KeyError 방지)
-            if '주기' not in sup_df.columns:
-                sup_df['주기'] = 30
-            
-            # 교체예정일 계산
-            sup_df['교체예정일'] = sup_df.apply(
-                lambda x: x['최근교체일'] + pd.Timedelta(days=int(x['주기'])) if pd.notnull(x['최근교체일']) else pd.NaT, 
-                axis=1
-            )
-            
-            # 보기 좋게 날짜 문자열로 변환
+            if '주기' not in sup_df.columns: sup_df['주기'] = 30
+            sup_df['교체예정일'] = sup_df.apply(lambda x: x['최근교체일'] + pd.Timedelta(days=int(x['주기'])) if pd.notnull(x['최근교체일']) else pd.NaT, axis=1)
             sup_df['최근교체일'] = sup_df['최근교체일'].dt.strftime('%Y-%m-%d').fillna("-")
             sup_df['교체예정일'] = sup_df['교체예정일'].dt.strftime('%Y-%m-%d').fillna("-")
-            
-        except Exception:
-            # 계산 중 에러가 나면 그냥 원본 데이터를 보여줌 (빨간창 뜨는 것보다 낫습니다)
-            pass
+        except: pass
 
         sup_df.index = range(1, len(sup_df) + 1)
         st.data_editor(sup_df, num_rows="dynamic", use_container_width=True)
