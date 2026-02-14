@@ -4,7 +4,7 @@ import requests
 import json
 from datetime import datetime
 
-# --- [1. 시스템 설정] ---
+# --- [1. 시스템 설정 및 데이터 보존] ---
 SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
 GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
@@ -47,7 +47,7 @@ with st.sidebar:
 st.title(f"시스템: {menu}")
 
 if menu == "투자 & 자산":
-    # (투자 섹션 코드 유지)
+    # 재무 기록 입력
     st.markdown('<div class="input-card">', unsafe_allow_html=True)
     st.subheader("📝 오늘의 재무 활동 기록")
     i_c1, i_c2, i_c3, i_c4 = st.columns([1, 2, 2, 1])
@@ -61,7 +61,7 @@ if menu == "투자 & 자산":
         if st.button("기록하기", use_container_width=True): st.success("기록 완료")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 자산 테이블 로직
+    # 투자 현황 테이블
     inv_rows = []
     for cat, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
         for name, info in items.items():
@@ -72,44 +72,45 @@ if menu == "투자 & 자산":
     st.subheader("📊 실시간 투자 현황")
     st.table(df_inv[["분류", "항목", "수량", "현재가", "평가금액_str"]])
 
-# [복구] 2번 탭: 식단 & 건강
+# 2번 탭: 식단 & 건강
 elif menu == "식단 & 건강":
     st.markdown('<div class="input-card">', unsafe_allow_html=True)
     st.subheader("🥗 오늘의 식단 기록")
     h_c1, h_c2, h_c3 = st.columns([2, 2, 1])
     with h_c1: meal_name = st.text_input("메뉴명", placeholder="예: 닭가슴살 샐러드")
-    with h_c2: kcal_input = st.number_input("칼로리(kcal)", min_value=0.00, step=0.01, format="%.2f") # 소수점 2자리 유지
+    with h_c2: kcal_input = st.number_input("칼로리(kcal)", min_value=0.00, step=0.01, format="%.2f") # 정밀도 유지
     with h_c3: 
         st.write(""); st.write("")
-        if st.button("식단 저장"): st.success("식단이 기록되었습니다.")
+        if st.button("식단 저장"): st.success("기록 완료")
     st.markdown('</div>', unsafe_allow_html=True)
     
-    st.subheader("🏃 건강 지표 관리")
-    w_c1, w_c2 = st.columns(2)
-    with w_c1: weight_input = st.number_input("현재 체중(kg)", min_value=0.00, step=0.01, format="%.2f")
-    with w_c2: st.info("목표 체중까지 3kg 남았습니다. (샘플)")
+    st.subheader("🏃 신체 지표 (소수점 2자리)")
+    weight_input = st.number_input("현재 체중(kg)", min_value=0.00, step=0.01, format="%.2f")
 
-# [복구] 3번 탭: 재고 관리
+# 3번 탭: 재고 관리 (식재료 포함 복구)
 elif menu == "재고 관리":
-    st.subheader("📦 생활용품 및 재고 현황")
+    st.subheader("📦 우리집 재고 통합 관리")
     
-    # 레이아웃 유지 원칙에 따른 테이블 구성
-    stock_data = [
-        {"항목": "화장지", "현재고": 15, "단위": "롤", "교체주기": "30일", "상태": "양호"},
-        {"항목": "샴푸", "현재고": 1, "단위": "개", "교체주기": "60일", "상태": "부족"},
-        {"항목": "멀티비타민", "현재고": 45, "단위": "알", "교체주기": "90일", "상태": "양호"}
-    ]
-    df_stock = pd.DataFrame(stock_data)
-    df_stock.index = range(1, len(df_stock) + 1) # 인덱스 1부터 시작
+    # 식재료 및 생활용품 탭 구분
+    stock_tab1, stock_tab2 = st.tabs(["🛒 식재료 관리", "🏠 생활용품"])
     
-    st.table(df_stock)
-    
-    st.markdown('<div class="input-card">', unsafe_allow_html=True)
-    st.subheader("➕ 재고 수량 업데이트")
-    s_c1, s_c2, s_c3 = st.columns([2, 1, 1])
-    with s_c1: st.selectbox("품목 선택", df_stock["항목"].tolist())
-    with s_c2: st.number_input("변경 수량", step=1)
-    with s_c3: 
-        st.write(""); st.write("")
-        st.button("수량 반영")
-    st.markdown('</div>', unsafe_allow_html=True)
+    with stock_tab1:
+        st.subheader("냉장고/팬트리 식재료")
+        food_data = [
+            {"품목": "계란", "수량": 10, "단위": "알", "소비기한": "2026-02-25", "상태": "보통"},
+            {"품목": "우유", "수량": 1, "단위": "팩", "소비기한": "2026-02-20", "상태": "임박"},
+            {"품목": "닭가슴살", "수량": 5, "단위": "팩", "소비기한": "2026-03-10", "상태": "여유"}
+        ]
+        df_food = pd.DataFrame(food_data)
+        df_food.index = range(1, len(df_food) + 1)
+        st.table(df_food)
+
+    with stock_tab2:
+        st.subheader("생필품 재고")
+        item_data = [
+            {"품목": "화장지", "재고": 15, "단위": "롤", "주기": "30일"},
+            {"품목": "세제", "재고": 2, "단위": "개", "주기": "60일"}
+        ]
+        df_item = pd.DataFrame(item_data)
+        df_item.index = range(1, len(df_item) + 1)
+        st.table(df_item)
