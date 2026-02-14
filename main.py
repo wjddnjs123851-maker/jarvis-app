@@ -1,11 +1,10 @@
 import streamlit as st
 import pandas as pd
 from google.oauth2 import service_account
-from gspread_pandas import Spread, Client
+import googleapiclient.discovery
 import datetime
 
-# 1. 인증 정보 및 설정
-# 보스께서 제공해주신 서비스 계정 키 정보를 직접 할당합니다.
+# 1. 인증 정보 및 설정 (보스의 JSON 키 정보 유지)
 CREDENTIALS_INFO = {
   "type": "service_account",
   "project_id": "driven-rider-487400-u1",
@@ -14,27 +13,39 @@ CREDENTIALS_INFO = {
   "client_email": "jarvis-bot@driven-rider-487400-u1.iam.gserviceaccount.com",
 }
 
+# 보스의 가계부 시트 ID
 SPREADSHEET_ID = '1X6ypXRLkHIMOSGuYdNLnzLkVB4xHfpRR'
 
 # 2. 세션 상태 초기화 (식단 합산용)
 if 'daily_nutrition' not in st.session_state:
     st.session_state.daily_nutrition = {'칼로리': 0.0, '탄수화물': 0.0, '단백질': 0.0, '지방': 0.0}
 
-# 3. 함수 정의: 가계부 데이터 로드
+# 3. 함수 정의: 가계부 데이터 로드 (표준 라이브러리 방식)
 def load_finance_data():
     try:
-        credentials = service_account.Credentials.from_service_account_info(CREDENTIALS_INFO)
-        scoped_credentials = credentials.with_scopes(['https://www.googleapis.com/auth/spreadsheets'])
-        # gspread_pandas를 이용해 데이터프레임으로 변환
-        spread = Spread(SPREADSHEET_ID, creds=scoped_credentials)
-        df = spread.sheet_to_df(index=None, sheet=0) # 첫 번째 탭 로드
+        scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+        creds = service_account.Credentials.from_service_account_info(CREDENTIALS_INFO, scopes=scopes)
+        service = googleapiclient.discovery.build('sheets', 'v4', credentials=creds)
+        
+        # 첫 번째 탭의 모든 데이터를 가져옵니다.
+        sheet = service.spreadsheets()
+        result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range="A1:Z100").execute()
+        values = result.get('values', [])
+        
+        if not values:
+            return None
+        
+        # 데이터프레임으로 변환 (첫 줄을 제목으로 사용)
+        df = pd.DataFrame(values[1:], columns=values[0])
         return df
     except Exception as e:
         st.error(f"구글 시트 연동 중 오류 발생: {e}")
         return None
 
 # --- UI 구성 ---
+st.set_page_config(page_title="JARVIS 비서", layout="wide")
 st.title("🛡️ JARVIS: 개인 비서 시스템")
+
 st.sidebar.header("메뉴 선택")
 menu = st.sidebar.radio("이동할 기능", ["🏠 데일리 리포트", "💸 실시간 가계부", "🥗 식단 매니저", "📦 재고 및 주기 관리"])
 
@@ -45,81 +56,68 @@ if menu == "🏠 데일리 리포트":
     
     with col1:
         st.subheader("📊 영양소 섭취 현황")
-        st.json(st.session_state.daily_nutrition)
+        st.write(f"**현재 칼로리:** {st.session_state.daily_nutrition['칼로리']} kcal")
+        st.progress(min(st.session_state.daily_nutrition['칼로리'] / 2500, 1.0)) # 2500kcal 기준 예시
     
     with col2:
-        st.subheader("💡 알림")
-        st.info("결혼식(5월 30일)까지 컨디션 조절에 집중하십시오, 보스.")
+        st.subheader("💡 보스를 위한 메모")
+        st.info("5월 30일 결혼식까지 약 100일 남았습니다. 신체 리듬 유지에 유의하십시오.")
 
 # --- 2. 실시간 가계부 ---
 elif menu == "💸 실시간 가계부":
-    st.header("가계부 실시간 연동 현황")
-    with st.spinner("구글 시트에서 데이터를 읽어오는 중..."):
+    st.header("가계부 실시간 연동 (Sheet: 1X6yp...)")
+    with st.spinner("데이터를 동기화 중입니다..."):
         finance_df = load_finance_data()
         
         if finance_df is not None:
-            st.success("데이터를 성공적으로 불러왔습니다.")
-            # 상세 항목 출력 (이자, 정수기, 난방비, 관리비 등 모든 컬럼 포함)
+            st.success("보스의 데이터를 성공적으로 불러왔습니다.")
+            # 이자, 정수기, 난방비 등 모든 항목을 표로 출력
             st.dataframe(finance_df, use_container_width=True)
-            
-            # 요약 통계 (금액 컬럼이 숫자인 경우)
-            if '금액' in finance_df.columns:
-                finance_df['금액'] = pd.to_numeric(finance_df['금액'].replace('[\,]', '', regex=True), errors='coerce')
-                total_expense = finance_df['금액'].sum()
-                st.metric("현재 총 지출 합계", f"{total_expense:,.0f} 원")
         else:
-            st.warning("시트 데이터를 표시할 수 없습니다. 권한 설정을 확인하십시오.")
+            st.warning("시트에서 데이터를 찾을 수 없습니다.")
 
 # --- 3. 식단 매니저 ---
 elif menu == "🥗 식단 매니저":
     st.header("식단 입력 및 누적 관리")
-    st.write("FatSecret에서 확인한 데이터를 입력하십시오.")
     
     with st.form("nutrition_form"):
-        f_cal = st.number_input("칼로리 (kcal)", min_value=0.0)
-        f_carb = st.number_input("탄수화물 (g)", min_value=0.0)
-        f_prot = st.number_input("단백질 (g)", min_value=0.0)
-        f_fat = st.number_input("지방 (g)", min_value=0.0)
-        submit_btn = st.form_submit_button("섭취량 추가")
+        col1, col2 = st.columns(2)
+        with col1:
+            f_cal = st.number_input("칼로리 (kcal)", min_value=0.0)
+            f_carb = st.number_input("탄수화물 (g)", min_value=0.0)
+        with col2:
+            f_prot = st.number_input("단백질 (g)", min_value=0.0)
+            f_fat = st.number_input("지방 (g)", min_value=0.0)
+            
+        submit_btn = st.form_submit_button("영양 데이터 합산하기")
         
         if submit_btn:
             st.session_state.daily_nutrition['칼로리'] += f_cal
             st.session_state.daily_nutrition['탄수화물'] += f_carb
             st.session_state.daily_nutrition['단백질'] += f_prot
             st.session_state.daily_nutrition['지방'] += f_fat
-            st.success("오늘의 섭취량에 반영되었습니다.")
+            st.balloons()
+            st.success("데이터가 합산되었습니다.")
 
-    st.divider()
-    st.subheader("🔥 현재 누적 섭취량")
-    cols = st.columns(4)
-    cols[0].metric("칼로리", f"{st.session_state.daily_nutrition['칼로리']} kcal")
-    cols[1].metric("탄수", f"{st.session_state.daily_nutrition['탄수화물']} g")
-    cols[2].metric("단백질", f"{st.session_state.daily_nutrition['단백질']} g")
-    cols[3].metric("지방", f"{st.session_state.daily_nutrition['지방']} g")
+    st.subheader("🔥 현재까지 섭취 총량")
+    st.table(pd.DataFrame([st.session_state.daily_nutrition]))
 
 # --- 4. 재고 및 주기 관리 ---
 elif menu == "📦 재고 및 주기 관리":
     st.header("생활 주기 및 주방 재고")
-    
-    col_a, col_b = st.columns(2)
-    
-    with col_a:
-        st.subheader("🔄 교체 주기 관리")
-        cycle_data = {
-            "항목": ["면도날", "칫솔", "베개커버", "수건"],
-            "상태": ["교체완료", "사용 중", "세탁 필요", "양호"],
-            "마지막 교체일": ["2026-02-01", "2026-02-10", "2026-02-14", "2026-02-12"]
-        }
-        st.table(pd.DataFrame(cycle_data))
-        
-    with col_b:
-        st.subheader("🍳 주방 재고 현황")
-        kitchen_stock = {
-            "품목": ["닭가슴살", "계란", "프로틴 파우더", "올리브유"],
-            "수량": ["5kg", "2판", "1.2kg", "500ml"],
-            "비고": ["냉동", "상온", "초코맛", "엑스트라 버진"]
-        }
-        st.table(pd.DataFrame(kitchen_stock))
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("🔄 소모품 교체 주기")
+        st.table(pd.DataFrame({
+            "항목": ["면도날", "칫솔", "베개커버"],
+            "상태": ["교체 임박", "사용 중", "청결"]
+        }))
+    with c2:
+        st.subheader("🍳 주방 재고")
+        st.table(pd.DataFrame({
+            "품목": ["닭가슴살", "계란", "프로틴"],
+            "수량": ["5kg", "2판", "1.2kg"]
+        }))
 
 st.sidebar.markdown("---")
-st.sidebar.write(f"최근 동기화: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.sidebar.write(f"최근 업데이트: {datetime.datetime.now().strftime('%H:%M:%S')}")
