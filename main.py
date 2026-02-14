@@ -85,29 +85,36 @@ with t_c2: st.markdown("<div style='text-align:right;'><b>SYSTEM STATUS: ONLINE 
 with st.sidebar:
     st.title("JARVIS 제어 센터")
     menu = st.radio("메뉴 선택", ["투자 & 자산", "식단 & 건강", "재고 관리"])
-
+    
+    st.divider()
+    
+    # [UX 개선] 자산 탭일 때만 입력창이 사이드바에 나타남
+    if menu == "투자 & 자산":
+        st.subheader("💰 자산 변동 기록")
+        with st.form("asset_input_sidebar"):
+            t_choice = st.selectbox("구분", ["지출", "수입"])
+            
+            if t_choice == "지출":
+                cats = ["식비(집밥)", "식비(외식)", "식비(배달)", "식비(편의점)", "생활용품", "건강/의료", "기호품", "주거/통신", "교통/차량", "금융/보험", "결혼준비", "경조사", "자산이동", "기타지출"]
+            else:
+                cats = ["급여", "금융소득", "자산이동", "기타"]
+            
+            c_choice = st.selectbox("카테고리", cats)
+            a_input = st.number_input("금액(원)", min_value=0, step=1000)
+            
+            if st.form_submit_button("기록 저장", use_container_width=True):
+                if a_input > 0:
+                    if send_to_sheet(t_choice, c_choice, a_input, corpus="Finance"):
+                        st.success("기록 완료")
+                        st.rerun()
 # --- [4. 탭별 로직] ---
 
 # === 탭 1: 투자 & 자산 ===
+# === 탭 1: 투자 & 자산 (UX 대개편) ===
 if menu == "투자 & 자산":
     st.header("💰 투자 및 종합 자산 관리")
     
-    st.markdown('<div class="input-card">', unsafe_allow_html=True)
-    f_c1, f_c2, f_c3, f_c4 = st.columns([1, 2, 2, 1])
-    with f_c1: t_choice = st.selectbox("구분", ["지출", "수입"])
-    with f_c2:
-        if t_choice == "지출":
-            cats = ["식비(집밥)", "식비(외식)", "식비(배달)", "식비(편의점)", "생활용품", "건강/의료", "기호품", "주거/통신", "교통/차량", "금융/보험", "결혼준비", "경조사", "자산이동", "기타지출"]
-        else:
-            cats = ["급여", "금융소득", "자산이동", "기타"]
-        c_choice = st.selectbox("카테고리", cats)
-    with f_c3: a_input = st.number_input("금액(원)", min_value=0, step=1000)
-    with f_c4: 
-        st.write(""); st.write("")
-        if st.button("기록"): 
-            if a_input > 0 and send_to_sheet(t_choice, c_choice, a_input, corpus="Finance"): st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-
+    # 데이터 로드 및 계산
     try:
         df_assets = load_sheet_data(GID_MAP["Assets"])
         df_log = load_sheet_data(GID_MAP["Log"])
@@ -116,53 +123,100 @@ if menu == "투자 & 자산":
             df_assets.columns = ["항목", "금액"]
             df_assets["val"] = df_assets["금액"].apply(to_numeric)
         
+        # 현금 흐름 계산
         cash_diff, card_debt = 0, 0
+        monthly_trend = {} # 월별 추세 데이터
+
         if not df_log.empty:
             df_log.columns = ["날짜", "구분", "항목", "수치"]
             for _, row in df_log.iterrows():
                 val = to_numeric(row["수치"])
+                date_ym = str(row["날짜"])[:7] # YYYY-MM 추출
+
+                # 현재 자산 계산용
                 if row["구분"] == "지출":
                     if row["항목"] == "자산이동": cash_diff -= val
                     else: card_debt += val
                 elif row["구분"] == "수입":
                     if row["항목"] != "자산이동": cash_diff += val
+                
+                # [그래프용] 월별 수입/지출 집계
+                if date_ym not in monthly_trend: monthly_trend[date_ym] = {"수입": 0, "지출": 0}
+                if row["구분"] == "수입" and row["항목"] != "자산이동": 
+                    monthly_trend[date_ym]["수입"] += val
+                elif row["구분"] == "지출" and row["항목"] != "자산이동":
+                    monthly_trend[date_ym]["지출"] += val
 
+        # 투자 자산 합산
         inv_rows = []
         for cat, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
             for name, info in items.items(): inv_rows.append({"항목": name, "val": info['평단'] * info['수량']})
         
         df_total = pd.concat([df_assets, pd.DataFrame(inv_rows)], ignore_index=True)
 
-        # [수정된 로직] 현금 항목 자동 추적
+        # 현금 항목 자동 추적 및 반영
         if not df_total.empty:
             cash_idx = df_total[df_total['항목'].str.contains('현금', na=False)].index
             target_idx = cash_idx[0] if not cash_idx.empty else 0
             df_total.at[target_idx, "val"] += cash_diff
 
+        # 카드값 부채 처리
         if card_debt > 0: df_total = pd.concat([df_total, pd.DataFrame([{"항목": "카드값(미결제)", "val": -card_debt}])], ignore_index=True)
 
-        a_df, l_df = df_total[df_total["val"] >= 0].copy(), df_total[df_total["val"] < 0].copy()
-        sum_a, sum_l = a_df["val"].sum(), abs(l_df["val"].sum())
+        # 자산(Positive)과 부채(Negative) 분리
+        a_df = df_total[df_total["val"] >= 0].copy()
+        l_df = df_total[df_total["val"] < 0].copy()
         
-        col_a, col_l = st.columns(2)
-        with col_a:
-            st.subheader("📈 자산 (Assets)")
-            a_df.index = range(1, len(a_df)+1)
-            st.table(a_df.assign(금액=a_df["val"].apply(format_krw))[["항목", "금액"]])
-            st.markdown(f'<div class="total-display">자산총계: {format_krw(sum_a)}</div>', unsafe_allow_html=True)
-            st.bar_chart(a_df.set_index("항목")["val"], color="#4CAF50")
-            
-        with col_l:
-            st.subheader("📉 부채 (Liabilities)")
-            l_df.index = range(1, len(l_df)+1)
-            st.table(l_df.assign(금액=l_df["val"].apply(lambda x: format_krw(abs(x))))[["항목", "금액"]])
-            st.markdown(f'<div class="total-display" style="color:#e03131;">부채총계: {format_krw(sum_l)}</div>', unsafe_allow_html=True)
-            
-        st.markdown(f'<div class="net-wealth">💎 종합 순자산: {format_krw(sum_a - sum_l)}</div>', unsafe_allow_html=True)
+        # 순자산 계산
+        net_worth = a_df["val"].sum() - abs(l_df["val"].sum())
+        
+        # --- [1] 월별 자산 변동 그래프 (꺾은선) ---
+        st.subheader("📉 월별 자산 흐름 (수입 vs 지출)")
+        if monthly_trend:
+            trend_df = pd.DataFrame.from_dict(monthly_trend, orient='index').sort_index()
+            st.line_chart(trend_df, color=["#4CAF50", "#FF4B4B"]) # 수입:초록, 지출:빨강
+        else:
+            st.info("데이터가 쌓이면 이곳에 월별 자산 변동 그래프가 나타납니다.")
+
+        st.divider()
+
+        # --- [2] 자산 현황 표 (합계 포함) ---
+        c1, c2 = st.columns(2)
+        
+        with c1:
+            st.subheader("자산 (Assets)")
+            if not a_df.empty:
+                # 합계 행 추가 로직
+                sum_val = a_df["val"].sum()
+                a_df.loc["Total"] = ["합계", sum_val] # 마지막 줄에 추가
+                
+                # 표 출력을 위한 포맷팅
+                disp_a = a_df[["항목", "val"]].copy()
+                disp_a["금액"] = disp_a["val"].apply(format_krw)
+                st.dataframe(disp_a[["항목", "금액"]], use_container_width=True, hide_index=True)
+        
+        with c2:
+            st.subheader("부채 (Liabilities)")
+            if not l_df.empty:
+                sum_val = l_df["val"].sum() # 음수값
+                l_df.loc["Total"] = ["합계", sum_val]
+                
+                disp_l = l_df[["항목", "val"]].copy()
+                disp_l["금액"] = disp_l["val"].apply(lambda x: format_krw(abs(x)))
+                st.dataframe(disp_l[["항목", "금액"]], use_container_width=True, hide_index=True)
+            else:
+                st.success("현재 부채가 없습니다. (카드값 0원)")
+
+        # 종합 순자산 표시
+        st.markdown(f"""
+            <div style='text-align: right; margin-top: 20px; padding: 20px; background-color: #f8f9fa; border-radius: 10px;'>
+                <span style='font-size: 1.2em; color: gray;'>순자산 총계</span><br>
+                <span style='font-size: 2.5em; font-weight: bold; color: #1E90FF;'>{format_krw(net_worth)}</span>
+            </div>
+        """, unsafe_allow_html=True)
 
     except Exception as e:
-        st.error(f"데이터 처리 중 문제가 발생했습니다 (일시적 오류): {e}")
-
+        st.error(f"데이터 처리 중 오류: {e}")
 # === 탭 2: 식단 & 건강 ===
 elif menu == "식단 & 건강":
     st.header("🥗 실시간 영양 분석 리포트")
