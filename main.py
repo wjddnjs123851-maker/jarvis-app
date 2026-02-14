@@ -9,7 +9,7 @@ SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
 GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532", "Health": "123456789"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# 데이터 보존 (식단 가이드 & 자산 정보)
+# 데이터 보존
 DAILY_GUIDE = {
     "칼로리": {"val": 2900.0, "unit": "kcal"}, "지방": {"val": 90.0, "unit": "g"},
     "콜레스테롤": {"val": 300.0, "unit": "mg"}, "나트륨": {"val": 2300.0, "unit": "mg"},
@@ -45,9 +45,8 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [3. 메인 화면 구성] ---
-st.set_page_config(page_title="JARVIS v36.0", layout="wide")
+st.set_page_config(page_title="JARVIS v36.1", layout="wide")
 
-# 스타일 적용 (표 너비 최적화 & 간격 조정)
 st.markdown("""
     <style>
     .stTable td { text-align: right !important; }
@@ -61,7 +60,7 @@ st.markdown("""
 
 t_c1, t_c2 = st.columns([7, 3])
 with t_c1: st.markdown(f"### {datetime.now().strftime('%Y-%m-%d')} | 🌡️ 8°C ☀️ 맑음")
-with t_c2: st.markdown("<div style='text-align:right;'><b>SYSTEM STATUS: ONLINE (v36.0)</b></div>", unsafe_allow_html=True)
+with t_c2: st.markdown("<div style='text-align:right;'><b>SYSTEM STATUS: ONLINE (v36.1)</b></div>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.title("JARVIS 제어 센터")
@@ -73,7 +72,6 @@ with st.sidebar:
 if menu == "투자 & 자산":
     st.header("💰 투자 및 종합 자산 관리")
     
-    # 입력 폼
     st.markdown('<div class="input-card">', unsafe_allow_html=True)
     f_c1, f_c2, f_c3, f_c4 = st.columns([1, 2, 2, 1])
     with f_c1: t_choice = st.selectbox("구분", ["지출", "수입"])
@@ -90,7 +88,6 @@ if menu == "투자 & 자산":
             if a_input > 0 and send_to_sheet(t_choice, c_choice, a_input, corpus="Finance"): st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 데이터 로드 및 계산 (에러 방지)
     try:
         df_assets = load_sheet_data(GID_MAP["Assets"])
         df_log = load_sheet_data(GID_MAP["Log"])
@@ -115,12 +112,13 @@ if menu == "투자 & 자산":
             for name, info in items.items(): inv_rows.append({"항목": name, "val": info['평단'] * info['수량']})
         
         df_total = pd.concat([df_assets, pd.DataFrame(inv_rows)], ignore_index=True)
-        # [수정됨] 무조건 첫 번째가 아니라 '현금'이라는 글자가 들어간 항목을 찾아 자동 차감
-        cash_idx = df_total[df_total['항목'].str.contains('현금', na=False)].index
-        target_idx = cash_idx[0] if not cash_idx.empty else 0
-        
+
+        # [수정된 로직] 현금 항목 자동 추적
         if not df_total.empty:
+            cash_idx = df_total[df_total['항목'].str.contains('현금', na=False)].index
+            target_idx = cash_idx[0] if not cash_idx.empty else 0
             df_total.at[target_idx, "val"] += cash_diff
+
         if card_debt > 0: df_total = pd.concat([df_total, pd.DataFrame([{"항목": "카드값(미결제)", "val": -card_debt}])], ignore_index=True)
 
         a_df, l_df = df_total[df_total["val"] >= 0].copy(), df_total[df_total["val"] < 0].copy()
@@ -132,7 +130,6 @@ if menu == "투자 & 자산":
             a_df.index = range(1, len(a_df)+1)
             st.table(a_df.assign(금액=a_df["val"].apply(format_krw))[["항목", "금액"]])
             st.markdown(f'<div class="total-display">자산총계: {format_krw(sum_a)}</div>', unsafe_allow_html=True)
-            # 자산 구성 그래프
             st.bar_chart(a_df.set_index("항목")["val"], color="#4CAF50")
             
         with col_l:
@@ -150,12 +147,10 @@ if menu == "투자 & 자산":
 elif menu == "식단 & 건강":
     st.header("🥗 실시간 영양 분석 리포트")
     
-    try:
-        d_day = (datetime(2026, 5, 30) - datetime.now()).days
+    try: d_day = (datetime(2026, 5, 30) - datetime.now()).days
     except: d_day = 0
     st.info(f"💍 결혼식까지 D-{d_day} | 현재 체중 125.00kg 기준 감량 모드")
 
-    # 체중 추세 그래프
     st.subheader("📉 체중 변화 추세")
     try:
         df_log = load_sheet_data(GID_MAP["Log"])
@@ -169,7 +164,6 @@ elif menu == "식단 & 건강":
             else: st.caption("아직 기록된 체중 데이터가 없습니다.")
     except: st.warning("그래프를 불러오는 중입니다...")
 
-    # 영양소 요약
     cur_nutri = {"지방": 0, "콜레스테롤": 0, "나트륨": 0, "탄수화물": 0, "식이섬유": 0, "당": 0, "단백질": 0}
     today_str = datetime.now().strftime('%Y-%m-%d')
     current_kcal = 0
