@@ -12,7 +12,6 @@ API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-G
 EXPENSE_CATS = ["식비(집밥)", "식비(외식)", "식비(배달)", "식비(편의점)", "생활용품", "건강/의료", "기호품", "주거/통신", "교통/차량", "금융/보험", "결혼준비", "경조사", "기타지출"]
 INCOME_CATS = ["급여", "금융소득", "기타"]
 
-# [보존] 보스 자산 데이터 (수정 절대 금지)
 FIXED_DATA = {
     "stocks": {
         "삼성전자": {"평단": 78895, "수량": 46}, "SK하이닉스": {"평단": 473521, "수량": 6},
@@ -75,15 +74,12 @@ with st.sidebar:
             data = {"지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "탄수화물": in_carb, "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot, "칼로리": in_kcal}
             for k, v in data.items():
                 if v > 0: send_to_sheet("식단", k, v)
-            send_to_sheet("건강", "체중", in_w)
-            st.success("데이터 전송 완료!")
-            st.rerun()
+            send_to_sheet("건강", "체중", in_w); st.success("전송 완료!"); st.rerun()
 
 # --- [4. 메인 화면 로직] ---
 st.title(f"시스템: {menu}")
 
 if menu == "투자 & 자산":
-    # A. 입력 섹션
     st.markdown('<div class="input-card">', unsafe_allow_html=True)
     st.subheader("📝 오늘의 재무 활동 기록")
     i_c1, i_c2, i_c3, i_c4 = st.columns([1, 2, 2, 1])
@@ -93,10 +89,9 @@ if menu == "투자 & 자산":
     with i_c4: 
         st.write(""); st.write("")
         if st.button("기록하기", use_container_width=True):
-            if a_input > 0 and send_to_sheet(t_choice, c_choice, a_input): st.success("완료!")
+            if a_input > 0 and send_to_sheet(t_choice, c_choice, a_input): st.success("기록 완료!")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # B. 자산/부채 계산 (v34.0 로직 복구)
     df_assets_sheet = load_sheet_data(GID_MAP["Assets"])
     if not df_assets_sheet.empty:
         df_assets_sheet.columns = ["항목", "금액"]
@@ -119,19 +114,16 @@ if menu == "투자 & 자산":
         a_df.index = range(1, len(a_df) + 1)
         st.table(a_df[["항목", "금액표기"]])
         st.markdown(f'<div class="total-box">자산 총계: {format_krw(a_df["val"].sum())}원</div>', unsafe_allow_html=True)
-    
     with col_l:
         st.subheader("📉 부채 목록")
         l_df["금액표기"] = l_df["val"].apply(lambda x: f"{format_krw(abs(x))}원")
         l_df.index = range(1, len(l_df) + 1)
         st.table(l_df[["항목", "금액표기"]])
         st.markdown(f'<div class="total-box" style="color: #ff4b4b;">부채 총계: {format_krw(abs(l_df["val"].sum()))}원</div>', unsafe_allow_html=True)
-    
     st.markdown(f'<div class="net-wealth">종합 순자산: {format_krw(a_df["val"].sum() + l_df["val"].sum())}원</div>', unsafe_allow_html=True)
 
 elif menu == "식단 & 건강":
     st.subheader("🥗 실시간 영양 분석 리포트")
-    # 사이드바 입력값 기반 실시간 대시보드
     cur_data = {"지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "탄수화물": in_carb, "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot, "칼로리": in_kcal}
     cols = st.columns(4)
     for idx, (k, v) in enumerate(cur_data.items()):
@@ -144,45 +136,46 @@ elif menu == "식단 & 건강":
     st.warning(f"🎯 목표: 5월 30일 결혼식 전 체중 감량 (현재 체중: {in_w:.2f}kg)")
 
 elif menu == "재고 관리":
-    # 1. 식자재 관리
+    # [데이터 복구] 보스가 알려준 식자재 리스트
     st.subheader("📦 식자재 통합 관리 시스템")
     if 'inventory' not in st.session_state:
-        st.session_state.inventory = pd.DataFrame([{"항목": "닭다리살", "수량": "4팩", "보관": "냉동", "구매일": "2026-02-10", "유통기한": "2026-05-10"}])
+        st.session_state.inventory = pd.DataFrame([
+            {"항목": "닭다리살", "수량": "4", "단위": "팩", "보관": "냉동", "유통기한": "2026-05-10"},
+            {"항목": "닭가슴살", "수량": "10", "단위": "팩", "보관": "냉동", "유통기한": "2026-06-01"},
+            {"항목": "계란", "수량": "1", "단위": "판", "보관": "냉장", "유통기한": "2026-03-05"},
+            {"항목": "우유", "수량": "1", "단위": "팩", "보관": "냉장", "유통기한": "2026-02-25"},
+            {"항목": "양파", "수량": "3", "단위": "개", "보관": "실온", "유통기한": "2026-03-10"}
+        ])
     
     inv_display = st.session_state.inventory.copy()
     inv_display.index = range(1, len(inv_display) + 1)
-    edited_inv = st.data_editor(inv_display, num_rows="dynamic", use_container_width=True, key="inv_editor")
+    edited_inv = st.data_editor(inv_display, num_rows="dynamic", use_container_width=True, key="inv_final_fixed")
     if st.button("식자재 데이터 저장"):
-        st.session_state.inventory = edited_inv.reset_index(drop=True)
-        st.success("식자재 목록 저장 완료")
+        st.session_state.inventory = edited_inv.reset_index(drop=True); st.success("식자재 목록 저장 완료")
 
     st.divider()
 
-    # 2. 생활용품 교체주기
-    st.subheader("⏰ 생활용품 및 교체 주기 관리")
+    st.subheader("⏰ 생활용품 교체주기 관리")
     if 'supplies' not in st.session_state:
         st.session_state.supplies = pd.DataFrame([
             {"품목": "칫솔", "최근교체일": "2026-01-15", "주기(일)": 30},
             {"품목": "면도날", "최근교체일": "2026-02-01", "주기(일)": 14},
-            {"품목": "이불빨래", "최근교체일": "2026-02-08", "주기(일)": 14}
+            {"품목": "이불빨래", "최근교체일": "2026-02-08", "주기(일)": 14},
+            {"품목": "베개커버", "최근교체일": "2026-02-12", "주기(일)": 7}
         ])
     
     supp_display = st.session_state.supplies.copy()
     supp_display.index = range(1, len(supp_display) + 1)
-    edited_supp = st.data_editor(supp_display, num_rows="dynamic", use_container_width=True, key="supp_editor")
+    edited_supp = st.data_editor(supp_display, num_rows="dynamic", use_container_width=True, key="supp_final_fixed")
     
     if st.button("생활용품 설정 저장"):
-        st.session_state.supplies = edited_supp.reset_index(drop=True)
-        st.success("생활용품 설정 저장 완료")
+        st.session_state.supplies = edited_supp.reset_index(drop=True); st.success("설정 저장 완료")
     
     st.write("---")
-    # 교체 완료 버튼 로직
     sc1, sc2 = st.columns([3, 1])
-    with sc1:
-        sel_item = st.selectbox("방금 교체 완료한 품목", st.session_state.supplies['품목'].tolist())
+    with sc1: sel_item = st.selectbox("교체 완료 품목", st.session_state.supplies['품목'].tolist())
     with sc2:
         st.write(""); st.write("")
-        if st.button("오늘로 날짜 갱신"):
+        if st.button("오늘 날짜로 갱신"):
             st.session_state.supplies.loc[st.session_state.supplies['품목'] == sel_item, '최근교체일'] = datetime.now().strftime('%Y-%m-%d')
-            st.success(f"{sel_item} 갱신 완료!")
-            st.rerun()
+            st.success(f"{sel_item} 갱신 완료!"); st.rerun()
