@@ -12,6 +12,7 @@ API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-G
 EXPENSE_CATS = ["식비(집밥)", "식비(외식)", "식비(배달)", "식비(편의점)", "생활용품", "건강/의료", "기호품", "주거/통신", "교통/차량", "금융/보험", "결혼준비", "경조사", "기타지출"]
 INCOME_CATS = ["급여", "금융소득", "기타"]
 
+# [데이터 보존] 보스 자산 상세 내역 (누락 금지)
 FIXED_DATA = {
     "stocks": {
         "삼성전자": {"평단": 78895, "수량": 46}, "SK하이닉스": {"평단": 473521, "수량": 6},
@@ -22,6 +23,7 @@ FIXED_DATA = {
     }
 }
 
+# [순서 유지] 보스 지정 영양소 8종
 DAILY_GUIDE = {
     "칼로리": {"val": 2000.0, "unit": "kcal"}, "단백질": {"val": 150.0, "unit": "g"},
     "탄수화물": {"val": 300.0, "unit": "g"}, "지방": {"val": 65.0, "unit": "g"},
@@ -50,7 +52,7 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [3. 메인 설정] ---
-st.set_page_config(page_title="JARVIS v35.0", layout="wide")
+st.set_page_config(page_title="JARVIS v35.1", layout="wide")
 st.markdown("""<style>.stTable td { text-align: right !important; }.total-box { text-align: right; font-size: 1.2em; font-weight: bold; padding: 10px; border-top: 2px solid #eee; }.net-wealth { font-size: 2.5em !important; font-weight: bold; color: #1E90FF; text-align: left; margin-top: 20px; border-top: 3px solid #1E90FF; padding-top: 10px; }.input-card { background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 1px solid #dee2e6; margin-bottom: 20px; }</style>""", unsafe_allow_html=True)
 
 with st.sidebar:
@@ -60,24 +62,19 @@ with st.sidebar:
     if menu == "식단 & 건강":
         st.subheader("데이터 입력 (정밀)")
         in_w = st.number_input("체중(kg)", 0.0, 200.0, 125.0, step=0.01, format="%.2f")
-        in_kcal = st.number_input("칼로리 (kcal)", 0.0, format="%.2f")
-        in_prot = st.number_input("단백질 (g)", 0.0, format="%.2f")
-        in_carb = st.number_input("탄수화물 (g)", 0.0, format="%.2f")
-        in_fat = st.number_input("지방 (g)", 0.0, format="%.2f")
-        in_chol = st.number_input("콜레스테롤 (mg)", 0.0, format="%.2f")
-        in_na = st.number_input("나트륨 (mg)", 0.0, format="%.2f")
-        in_sugar = st.number_input("당 (g)", 0.0, format="%.2f")
-        in_fiber = st.number_input("식이섬유 (g)", 0.0, format="%.2f")
+        inputs = {}
+        for k in DAILY_GUIDE.keys():
+            inputs[k] = st.number_input(f"{k} ({DAILY_GUIDE[k]['unit']})", 0.0, format="%.2f")
         if st.button("영양 데이터 전송"):
-            nutri_map = {"칼로리": in_kcal, "단백질": in_prot, "탄수화물": in_carb, "지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "당": in_sugar, "식이섬유": in_fiber}
-            for k, v in nutri_map.items():
+            for k, v in inputs.items():
                 if v > 0: send_to_sheet("식단", k, v)
             send_to_sheet("건강", "체중", in_w); st.success("전송 완료!"); st.rerun()
 
-# --- [4. 메인 화면 로직] ---
+# --- [4. 메인 로직] ---
 st.title(f"시스템: {menu}")
 
 if menu == "투자 & 자산":
+    # [입력 섹션]
     st.markdown('<div class="input-card">', unsafe_allow_html=True)
     st.subheader("📝 오늘의 재무 활동 기록")
     i_c1, i_c2, i_c3, i_c4 = st.columns([1, 2, 2, 1])
@@ -90,6 +87,7 @@ if menu == "투자 & 자산":
             if a_input > 0 and send_to_sheet(t_choice, c_choice, a_input): st.success("기록 완료!")
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # [자산/부채 테이블] 자산 금액 콤마 필수 표기
     df_assets_sheet = load_sheet_data(GID_MAP["Assets"])
     if not df_assets_sheet.empty:
         df_assets_sheet.columns = ["항목", "금액"]; df_assets_sheet["val"] = df_assets_sheet["금액"].apply(to_numeric)
@@ -115,10 +113,9 @@ if menu == "투자 & 자산":
 
 elif menu == "식단 & 건강":
     st.subheader("🥗 실시간 영양 분석 리포트")
-    st.warning(f"🎯 목표: 5월 30일 결혼식 전 체중 감량 (현재 체중: {in_w:.2f}kg)")
-    cur_nutri = {"칼로리": in_kcal, "단백질": in_prot, "탄수화물": in_carb, "지방": in_fat, "콜레스테롤": in_chol, "나트륨": in_na, "당": in_sugar, "식이섬유": in_fiber}
+    st.warning(f"🎯 목표: 5월 30일 결혼식 전 체중 감량 (현재 체중: {in_w:.2f}kg)") # 소수점 2자리 유지
     cols = st.columns(4)
-    for idx, (name, val) in enumerate(cur_nutri.items()):
+    for idx, (name, val) in enumerate(inputs.items()):
         with cols[idx % 4]:
             guide = DAILY_GUIDE.get(name)
             ratio = min(val / guide["val"], 1.0) if val > 0 else 0
@@ -128,28 +125,36 @@ elif menu == "식단 & 건강":
 elif menu == "재고 관리":
     st.subheader("📦 식자재 유통기한 및 생활용품 관리")
     
-    # 1. 식자재 리스트 (분류 칼럼 완전 삭제)
+    # [데이터 보존] 보스가 알려준 식자재 리스트 전체 복구
     if 'inventory' not in st.session_state:
         st.session_state.inventory = pd.DataFrame([
             {"항목": "냉동 삼치", "수량": "4팩", "유통기한": "2026-05-10"},
             {"항목": "냉동닭다리살", "수량": "3팩단위", "유통기한": "2026-06-01"},
             {"항목": "단백질 쉐이크", "수량": "9개", "유통기한": "2026-12-30"},
             {"항목": "카무트/쌀 혼합", "수량": "2kg", "유통기한": "2026-10-20"},
+            {"항목": "파스타면", "수량": "대량", "유통기한": "-"},
+            {"항목": "소면", "수량": "1봉", "유통기한": "-"},
+            {"항목": "쿠스쿠스", "수량": "500g", "유통기한": "2027-01-01"},
+            {"항목": "우동사리", "수량": "3봉(200g)", "유통기한": "-"},
+            {"항목": "라면", "수량": "6봉", "유통기한": "-"},
             {"항목": "토마토 페이스트", "수량": "10캔", "유통기한": "2027-05-15"},
             {"항목": "나시고랭 소스", "수량": "1팩", "유통기한": "2026-11-20"},
-            {"항목": "김치 4종", "수량": "반포기내외", "유통기한": "-"}
+            {"항목": "치아씨드/아사이베리", "수량": "각 100g", "유통기한": "-"},
+            {"항목": "김치 4종", "수량": "각 반포기", "유통기한": "-"},
+            {"항목": "당근", "수량": "적정", "유통기한": "-"},
+            {"항목": "감자", "수량": "적정", "유통기한": "-"}
         ])
     
     st.write("🛒 **식재료 유통기한 관리**")
     inv_display = st.session_state.inventory.copy()
-    inv_display.index = range(1, len(inv_display) + 1)
-    edited_inv = st.data_editor(inv_display, num_rows="dynamic", use_container_width=True, key="inv_v35")
-    if st.button("식자재 목록 업데이트"):
+    inv_display.index = range(1, len(inv_display) + 1) # 인덱스 1부터 시작
+    edited_inv = st.data_editor(inv_display, num_rows="dynamic", use_container_width=True, key="inv_v35_1")
+    if st.button("식자재 목록 저장"):
         st.session_state.inventory = edited_inv.reset_index(drop=True); st.success("식자재 저장 완료")
 
     st.divider()
 
-    # 2. 교체주기 관리 (이불빨래 복구 및 하단 배치)
+    # [데이터 보존] 생활용품 주기 관리 (이불빨래 포함)
     st.subheader("⏰ 생활용품 교체주기")
     if 'supplies' not in st.session_state:
         st.session_state.supplies = pd.DataFrame([
@@ -160,14 +165,14 @@ elif menu == "재고 관리":
     
     supp_display = st.session_state.supplies.copy()
     supp_display.index = range(1, len(supp_display) + 1)
-    edited_supp = st.data_editor(supp_display, num_rows="dynamic", use_container_width=True, key="supp_v35")
+    edited_supp = st.data_editor(supp_display, num_rows="dynamic", use_container_width=True, key="supp_v35_1")
     
     sc1, sc2 = st.columns([1, 1])
     with sc1:
-        if st.button("교체주기 설정 저장"):
+        if st.button("교체주기 저장"):
             st.session_state.supplies = edited_supp.reset_index(drop=True); st.success("설정 저장 완료")
     with sc2:
-        sel = st.selectbox("교체 완료 품목 선택", st.session_state.supplies['품목'].tolist())
-        if st.button("오늘 날짜로 교체 기록 갱신"):
+        sel = st.selectbox("업데이트 품목", st.session_state.supplies['품목'].tolist())
+        if st.button("갱신"):
             st.session_state.supplies.loc[st.session_state.supplies['품목'] == sel, '최근교체일'] = datetime.now().strftime('%Y-%m-%d')
-            st.success(f"{sel} 갱신 완료!"); st.rerun()
+            st.success(f"{sel} 날짜 갱신!"); st.rerun()
