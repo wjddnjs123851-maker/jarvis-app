@@ -143,5 +143,18 @@ elif menu == "재고 관리":
             {"항목": "나시고랭 소스", "수량": "1팩", "유통기한": "2026-11-20"}, {"항목": "치아씨드/아사이베리", "수량": "보유", "유통기한": "-"},
             {"항목": "김치 4종", "수량": "보유", "유통기한": "-"}, {"항목": "당근", "수량": "보유", "유통기한": "-"}, {"항목": "감자", "수량": "보유", "유통기한": "-"}
         ])
-    st.session_state.inventory.index = range(1, len(st.session_state.inventory)+1)
-    st.subheader("식재
+    st.subheader("식재료 현황")
+    inv_df = st.session_state.inventory.copy()
+    inv_df.index = range(1, len(inv_df) + 1)
+    st.data_editor(inv_df, num_rows="dynamic", use_container_width=True)
+    st.divider()
+    st.subheader("생활용품 교체")
+    if 'supplies' not in st.session_state:
+        st.session_state.supplies = pd.DataFrame([
+            {"품목": "칫솔(보스)", "최근교체일": "2026-01-15", "주기": 30},
+            {"품목": "칫솔(약혼녀)", "최근교체일": "2026-02-15", "주기": 30},
+            {"품목": "면도날", "최근교체일": "2026-02-01", "주기": 14}
+        ])
+    sup_df = st.session_state.supplies.copy()
+    sup_df.index = range(1, len(sup_df) + 1)
+    st.data_editor(sup_df, num_rows="dynamic", use_container_width=True)
