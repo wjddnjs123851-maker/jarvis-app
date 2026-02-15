@@ -9,10 +9,10 @@ SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
 GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532", "Health": "123456789"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# [색상 팔레트] 적녹색약 배려 & 다크모드용 (파랑 vs 주황)
-COLOR_GOOD = "#4dabf7" # 밝은 파랑 (자산/수입)
-COLOR_BAD = "#ff922b"  # 밝은 주황 (부채/지출)
-COLOR_TEXT = "#fafafa" # 흰색 텍스트
+# [색상 팔레트] 적녹색약 배려 & 다크모드용
+COLOR_GOOD = "#4dabf7" # 밝은 파랑
+COLOR_BAD = "#ff922b"  # 밝은 주황
+COLOR_TEXT = "#fafafa" # 흰색
 
 DAILY_GUIDE = {
     "칼로리": {"val": 2900.0, "unit": "kcal"}, "지방": {"val": 90.0, "unit": "g"},
@@ -63,22 +63,26 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [3. 메인 화면 구성] ---
-st.set_page_config(page_title="JARVIS v38.1", layout="wide")
+st.set_page_config(page_title="JARVIS v38.2", layout="wide")
 st.markdown(f"""
     <style>
-    /* 다크모드 강제 적용 및 고대비 스타일 */
+    /* 다크모드 및 버튼 가시성 확보 */
     .stApp {{ background-color: #0e1117; color: {COLOR_TEXT}; }}
     [data-testid="stSidebar"] {{ background-color: #262730; }}
-    .stDataFrame {{ border: 1px solid #41424b; }}
-    [data-testid="stHeader"] {{ background-color: rgba(0,0,0,0); }}
     
-    /* 입력창 스타일 */
+    /* 버튼 스타일 강제 적용 (흰색 -> 파란색 배경) */
+    div.stButton > button:first-child {{
+        background-color: {COLOR_GOOD} !important;
+        color: white !important;
+        border: none;
+        font-weight: bold;
+    }}
+    
+    /* 입력창 텍스트 색상 */
     .stNumberInput input {{ color: white !important; }}
     .stSelectbox div[data-baseweb="select"] {{ color: white !important; }}
     
-    /* 텍스트 가독성 */
     h1, h2, h3, p {{ color: {COLOR_TEXT} !important; }}
-    .total-row {{ font-weight: bold; color: {COLOR_GOOD}; }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -97,7 +101,7 @@ except:
 
 t_c1, t_c2 = st.columns([7, 3])
 with t_c1: st.markdown(f"### 📅 {date_str} (KST) | {weather_str} (평택)")
-with t_c2: st.markdown(f"<div style='text-align:right; color:{COLOR_GOOD};'><b>SYSTEM STATUS: ONLINE (v38.1)</b></div>", unsafe_allow_html=True)
+with t_c2: st.markdown(f"<div style='text-align:right; color:{COLOR_GOOD};'><b>SYSTEM STATUS: ONLINE (v38.2)</b></div>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.title("JARVIS 제어 센터")
@@ -111,6 +115,7 @@ with st.sidebar:
             else: cats = ["급여", "금융소득", "자산이동", "기타"]
             c_choice = st.selectbox("카테고리", cats)
             a_input = st.number_input("금액(원)", min_value=0, step=1000)
+            # 버튼이 이제 파란색으로 잘 보일 겁니다
             if st.form_submit_button("기록 저장", use_container_width=True):
                 if a_input > 0:
                     if send_to_sheet(t_choice, c_choice, a_input, corpus="Finance"):
@@ -165,14 +170,8 @@ if menu == "투자 & 자산":
 
         st.subheader("📉 월별 자산 흐름 (2024 ~ 현재)")
         trend_df = pd.DataFrame.from_dict(monthly_trend, orient='index').sort_index()
-        # [수정] 색약 배려 색상 적용 (파랑/주황)
+        # [삭제됨] 연도별 지출 규모 그래프 제거
         st.line_chart(trend_df, color=[COLOR_GOOD, COLOR_BAD])
-        
-        st.divider()
-        st.subheader("📅 연도별 지출 규모 비교")
-        trend_df.index = pd.to_datetime(trend_df.index)
-        yearly_exp = trend_df.groupby(trend_df.index.year)['지출'].sum()
-        st.bar_chart(yearly_exp, color=COLOR_BAD) # 주황색 막대
         
         st.divider()
         c1, c2 = st.columns(2)
@@ -181,25 +180,17 @@ if menu == "투자 & 자산":
             if not a_df.empty:
                 disp_a = a_df[["항목", "val"]].copy()
                 disp_a.loc["Total"] = ["합계", disp_a["val"].sum()]
-                # [수정] column_config로 정렬 완벽 해결
-                st.dataframe(
-                    disp_a, 
-                    column_config={"val": st.column_config.NumberColumn("금액", format="%d원")},
-                    use_container_width=True, 
-                    hide_index=True
-                )
+                # [수정] 콤마 표시를 위해 문자열 포맷팅 복구
+                disp_a["금액"] = disp_a["val"].apply(format_krw)
+                st.dataframe(disp_a[["항목", "금액"]], use_container_width=True, hide_index=True)
         with c2:
             st.subheader("부채 (Liabilities)")
             if not l_df.empty:
                 disp_l = l_df[["항목", "val"]].copy()
                 disp_l.loc["Total"] = ["합계", disp_l["val"].sum()]
-                # [수정] column_config로 음수도 깔끔하게 표시
-                st.dataframe(
-                    disp_l,
-                    column_config={"val": st.column_config.NumberColumn("금액", format="%d원")},
-                    use_container_width=True, 
-                    hide_index=True
-                )
+                # [수정] 콤마 표시 복구
+                disp_l["금액"] = disp_l["val"].apply(lambda x: format_krw(abs(x)))
+                st.dataframe(disp_l[["항목", "금액"]], use_container_width=True, hide_index=True)
             else: st.success("부채 없음")
         st.markdown(f"<h2 style='text-align: right; color: {COLOR_GOOD};'>💎 순자산: {format_krw(net_worth)}</h2>", unsafe_allow_html=True)
     except Exception as e: st.error(f"⚠️ 에러: {e}")
