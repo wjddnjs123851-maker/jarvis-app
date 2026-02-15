@@ -15,7 +15,7 @@ GID_MAP = {
 
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# 색상 팔레트: 적녹색약 배려 (파랑/주황)
+# 색상 팔레트: 파랑(#4dabf7) / 주황(#ff922b)
 COLOR_GOOD = "#4dabf7" # 자산/수입
 COLOR_BAD = "#ff922b"  # 부채/지출
 COLOR_TEXT = "#fafafa"
@@ -53,7 +53,7 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [2. UI 레이아웃 설정] ---
-st.set_page_config(page_title="JARVIS v40.2", layout="wide")
+st.set_page_config(page_title="JARVIS v40.3", layout="wide")
 st.markdown(f"""
     <style>
     .stApp {{ background-color: #0e1117; color: {COLOR_TEXT}; }}
@@ -100,7 +100,7 @@ if menu == "투자 & 자산":
             df_assets["val"] = df_assets["금액"].apply(to_numeric)
         else: df_assets = pd.DataFrame(columns=["항목", "val"])
 
-        # Log 데이터 분석
+        # Log 데이터 분석 (2026-02-01 이후 신규 데이터 기준)
         monthly_trend = {}; new_card_debt = 0; df_clean = pd.DataFrame()
         if not df_log.empty:
             df_clean = df_log.iloc[:, [0, 1, 2, 4]].copy()
@@ -115,7 +115,7 @@ if menu == "투자 & 자산":
                 if row["구분"] == "수입": monthly_trend[date_ym]["수입"] += val
                 else: monthly_trend[date_ym]["지출"] += val
 
-        # 주식 데이터 병합
+        # 주식 및 코인 병합
         inv_rows = []
         for cat, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
             for name, info in items.items(): inv_rows.append({"항목": name, "val": info['평단'] * info['수량']})
@@ -136,7 +136,9 @@ if menu == "투자 & 자산":
         with c_l:
             st.subheader("🔸 부채")
             st.metric("총 부채", format_krw(l_df["val"].sum()))
-            st.dataframe(l_df.assign(금액=l_df["val"].apply(lambda x: format_krw(abs(x))))[["항목", "금액"]], use_container_width=True, hide_index=True)
+            if not l_df.empty:
+                st.dataframe(l_df.assign(금액=l_df["val"].apply(lambda x: format_krw(abs(x))))[["항목", "금액"]], use_container_width=True, hide_index=True)
+            else: st.info("현재 부채가 없습니다.")
         with c_n:
             st.markdown(f"<div style='background-color:#1c1e26; padding:15px; border-radius:10px; text-align:center; border:1px solid {COLOR_GOOD};'>", unsafe_allow_html=True)
             st.markdown(f"<h3 style='margin:0; color:gray;'>순자산</h3><h1 style='margin:0; color:{COLOR_GOOD};'>{format_krw(net_worth)}</h1></div>", unsafe_allow_html=True)
@@ -149,11 +151,13 @@ if menu == "투자 & 자산":
             inc, exp = monthly_trend[sel_month]["수입"], monthly_trend[sel_month]["지출"]
             m1, m2, m3 = st.columns(3)
             m1.metric("총 수입", format_krw(inc)); m2.metric("총 지출", format_krw(exp), delta_color="inverse"); m3.metric("월 수지", format_krw(inc-exp))
+        else: st.info("📉 2026년 2월 이후의 내역을 입력하면 통계가 나타납니다.")
     except Exception as e: st.error(f"⚠️ 시스템 오류: {e}")
 
 elif menu == "식단 & 건강":
     st.header("🥗 실시간 영양 분석 리포트")
-    st.info(f"💍 결혼식까지 D-{(date(2026, 5, 30) - date.today()).days} | {st.session_state.get('user', '정원')}님 125kg 기준 감량 모드")
+    d_day = (date(2026, 5, 30) - date.today()).days
+    st.info(f"💍 결혼식까지 D-{d_day} | 정원님 125kg 기준 감량 모드")
     col_in, col_sum = st.columns([6, 4])
     with col_in:
         with st.form("diet_form"):
@@ -172,7 +176,7 @@ elif menu == "재고 관리":
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("🛒 식재료 현황")
-        inv = pd.DataFrame([
+        inv_data = [
             {"항목": "냉동 삼치", "수량": "4팩", "유통기한": "2026-05-10"},
             {"항목": "냉동닭다리살", "수량": "3팩", "유통기한": "2026-06-01"},
             {"항목": "단백질 쉐이크", "수량": "9개", "유통기한": "2026-12-30"},
@@ -186,16 +190,15 @@ elif menu == "재고 관리":
             {"항목": "김치 4종", "수량": "보유", "유통기한": "-"},
             {"항목": "당근", "수량": "보유", "유통기한": "-"},
             {"항목": "감자", "수량": "보유", "유통기한": "-"}
-        ])
-        st.data_editor(inv, use_container_width=True, hide_index=True)
+        ]
+        st.data_editor(pd.DataFrame(inv_data), use_container_width=True, hide_index=True)
     with c2:
         st.subheader("⏰ 생활용품 교체")
-        # 호칭 수정: 정원(보스), 서진(약혼녀) 반영
-        sup = pd.DataFrame([
+        sup_data = [
             {"품목": "칫솔(정원)", "최근교체일": "2026-01-15", "주기": 30},
             {"품목": "칫솔(서진)", "최근교체일": "2026-02-15", "주기": 30},
             {"품목": "면도날", "최근교체일": "2026-02-01", "주기": 14},
-            {"품목": "수세미", "최근교체일": "2026-02-15", "주ig": 30},
+            {"품목": "수세미", "최근교체일": "2026-02-15", "주기": 30},
             {"품목": "정수기필터", "최근교체일": "2025-12-10", "주기": 120}
-        ])
-        st.data_editor(sup, use_container_width=True, hide_index=True)
+        ]
+        st.data_editor(pd.DataFrame(sup_data), use_container_width=True, hide_index=True)
