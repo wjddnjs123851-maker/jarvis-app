@@ -142,8 +142,7 @@ with st.sidebar:
         with st.form("health_input"):
             in_w = st.number_input("현재 체중 (kg)", 50.0, 150.0, 125.0, step=0.1)
             st.divider()
-            # 팻시크릿 순서: 지방, 콜레스테롤, 나트륨, 탄수화물, 식이섬유, 당, 단백질
-            in_kcal = st.number_input("칼로리 (kcal)", 0, 5000, 0)
+            # 팻시크릿 순서 엄수: 지방, 콜레스테롤, 나트륨, 탄수화물, 식이섬유, 당, 단백질
             in_fat = st.number_input("지방 (g)", 0, 200, 0)
             in_chole = st.number_input("콜레스테롤 (mg)", 0, 1000, 0)
             in_na = st.number_input("나트륨 (mg)", 0, 5000, 0)
@@ -154,17 +153,28 @@ with st.sidebar:
             
             if st.form_submit_button("기록 저장", use_container_width=True):
                 send_to_sheet("건강", "기록", "체중", "정원", in_w, corpus="Health")
-                nutris = {"칼로리": in_kcal, "지방": in_fat, "콜레스테롤": in_chole, "나트륨": in_na, "탄수화물": in_carb, "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot}
+                nutris = {"지방": in_fat, "콜레스테롤": in_chole, "나트륨": in_na, "탄수화물": in_carb, "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot}
                 for k, v in nutris.items():
                     if v > 0: send_to_sheet("식단", "영양소", k, "정원", v, corpus="Health")
                 st.cache_data.clear(); st.rerun()
 
+    elif menu == "재고 관리":
+        st.subheader("신규 재고 등록")
+        with st.form("inv_form"):
+            inv_item = st.text_input("품목명")
+            inv_qty = st.text_input("수량")
+            inv_note = st.text_input("비고")
+            if st.form_submit_button("재고 리스트에 추가"):
+                new_item = pd.DataFrame([{"구분": "추가", "항목": inv_item, "수량": inv_qty, "비고": inv_note}])
+                st.session_state.inventory = pd.concat([st.session_state.inventory, new_item], ignore_index=True)
+                st.rerun()
+
 # --- [7. 메인 화면: 식단 & 건강 대시보드] ---
 if menu == "식단 & 건강":
-    st.header("영양 분석")
+    st.header("영양 섭취 분석")
     df_log = load_sheet_data(GID_MAP["Log"])
     today_str = get_current_time().split(' ')[0]
-    NUTRI_ORDER = ["칼로리", "지방", "콜레스테롤", "나트륨", "탄수화물", "식이섬유", "당", "단백질"]
+    NUTRI_ORDER = ["지방", "콜레스테롤", "나트륨", "탄수화물", "식이섬유", "당", "단백질"]
     
     cur_nutri = {k: 0 for k in NUTRI_ORDER}
     if not df_log.empty:
@@ -180,30 +190,40 @@ if menu == "식단 & 건강":
         stat_data = [{"영양소": k, "현재량": f"{cur_nutri[k]:,.1f}"} for k in NUTRI_ORDER]
         st.table(pd.DataFrame(stat_data).set_index("영양소"))
     with col_vis:
-        st.subheader("목표 달성도")
-        for name in ["칼로리", "단백질", "탄수화물", "지방"]:
-            val, target = cur_nutri[name], (2900 if name == "칼로리" else 160)
-            st.caption(f"{name} ({val:,.1f} / {target:,.1f})")
+        st.subheader("주요 지표 달성도")
+        # 단백질(160g), 탄수화물(360g), 지방(90g) 기준
+        targets = {"단백질": 160, "탄수화물": 360, "지방": 90}
+        for name, target in targets.items():
+            val = cur_nutri[name]
+            st.caption(f"{name} ({val:,.1f} / {target:,.1f}g)")
             st.progress(min(val / target, 1.0) if target > 0 else 0)
 
-# --- [8. 메인 화면: 재고 관리 (전수조사)] ---
+# --- [8. 메인 화면: 재고 관리 (전수조사 데이터 반영)] ---
 elif menu == "재고 관리":
-    st.header("창고 재고 관리")
+    st.header("식재료 및 귀중품 재고 현황")
     if 'inventory' not in st.session_state:
         st.session_state.inventory = pd.DataFrame([
-            {"구분": "상온", "항목": "올리브유/알룰로스/스테비아/사과식초", "수량": "보유"},
-            {"구분": "상온", "항목": "진간장/국간장/맛술/굴소스/저당케찹", "수량": "보유"},
-            {"구분": "상온", "항목": "하이라이스 가루/황설탕/고춧가루/후추", "수량": "보유"},
-            {"구분": "상온", "항목": "소금/통깨/김", "수량": "보유"},
-            {"구분": "곡물", "항목": "카무트/현미/쌀", "수량": "보유"},
-            {"구분": "냉장", "항목": "계란/대파/양파/마늘/청양고추", "수량": "보유"},
-            {"구분": "냉동", "항목": "냉동 삼치(4팩)/닭다리살(3팩)", "수량": "보유"},
-            {"구분": "냉동", "항목": "토마토 페이스트(10캔)", "수량": "보유"},
-            {"구분": "냉동", "항목": "단백질 쉐이크(9개)", "수량": "보유"},
-            {"구분": "냉동", "항목": "닭가슴살 스테이크", "수량": "보유"}
+            {"구분": "귀중품", "항목": "금(실물)", "수량": "16g", "비고": "자산 연동"},
+            {"구분": "상온", "항목": "올리브유/알룰로스/스테비아/사과식초", "수량": "보유", "비고": "-"},
+            {"구분": "상온", "항목": "진간장/국간장/맛술/굴소스/저당케찹", "수량": "보유", "비고": "-"},
+            {"구분": "상온", "항목": "하이라이스 가루/황설탕/고춧가루/후추", "수량": "보유", "비고": "-"},
+            {"구분": "상온", "항목": "소금/통깨/김", "수량": "보유", "비고": "-"},
+            {"구분": "곡물", "항목": "카무트/현미/쌀", "수량": "보유", "비고": "-"},
+            {"구분": "냉장", "항목": "계란/대파/양파/마늘/청양고추", "수량": "보유", "비고": "냉장"},
+            {"구분": "냉동", "항목": "냉동 삼치(4팩)/닭다리살(3팩)", "수량": "보유", "비고": "-"},
+            {"구분": "냉동", "항목": "토마토 페이스트(10캔)", "수량": "보유", "비고": "2027-05-15"},
+            {"구분": "냉동", "항목": "단백질 쉐이크(9개)", "수량": "보유", "비고": "-"},
+            {"구분": "냉동", "항목": "닭가슴살 스테이크", "수량": "보유", "비고": "냉동"}
         ])
-    st.session_state.inventory = st.data_editor(st.session_state.inventory, num_rows="dynamic", use_container_width=True)
+    
+    st.info("💡 아래 표에서 직접 수정하거나 행을 추가할 수 있습니다.")
+    st.session_state.inventory = st.data_editor(
+        st.session_state.inventory, 
+        num_rows="dynamic", 
+        use_container_width=True,
+        key="inv_editor"
+    )
 
 st.divider()
-if st.button("시스템 리프레시", use_container_width=True):
+if st.button("데이터 동기화 (새로고침)", use_container_width=True):
     st.cache_data.clear(); st.rerun()
