@@ -91,81 +91,89 @@ with st.sidebar:
     st.title("JARVIS 제어 센터")
     menu = st.radio("메뉴 선택", ["투자 & 자산", "식단 & 건강", "재고 관리"])
     st.divider()
-    if menu == "투자 & 자산":
-        st.subheader("💰 자산 변동 기록")
-        with st.form("asset_input"):
-            t_choice = st.selectbox("구분", ["지출", "수입"])
-            cats = ["식비", "생활", "주거/통신", "건강/의료", "교통/차량", "금융/보험", "경조사", "기타"] if t_choice == "지출" else ["급여", "금융소득", "자산이동", "기타"]
-            c_choice = st.selectbox("카테고리", cats)
-            a_input = st.number_input("금액(원)", min_value=0, step=1000)
-            if st.form_submit_button("기록 저장", use_container_width=True):
-                if a_input > 0:
-                    if send_to_sheet(t_choice, c_choice, a_input, corpus="Finance"):
-                        st.success("기록 완료"); st.rerun()
-                        # --- [탭 1] 투자 & 자산 ---
+   # --- [탭 1] 투자 & 자산 ---
 if menu == "투자 & 자산":
     st.header("💰 투자 및 종합 자산 관리")
     try:
+        # 데이터 로드
         df_assets = load_sheet_data(GID_MAP["Assets"])
         df_log = load_sheet_data(GID_MAP["Log"])
-        if not df_assets.empty:
+        
+        # 1. Assets 시트 처리 (안전 장치 추가)
+        if not df_assets.empty and len(df_assets.columns) >= 2:
             df_assets = df_assets.iloc[:, :2]
             df_assets.columns = ["항목", "금액"]
             df_assets["val"] = df_assets["금액"].apply(to_numeric)
+        else:
+            # 시트가 비었거나 깨졌을 경우 빈 데이터프레임 생성
+            df_assets = pd.DataFrame(columns=["항목", "금액", "val"])
         
-        monthly_trend = {} # 빈 딕셔너리로 시작
+        monthly_trend = {} # 2026년 2월 이후 데이터만 담을 그릇
         cash_diff, card_debt = 0, 0
         
+        # 2. Log 시트 처리 (여기가 에러의 원인일 확률 높음)
         if not df_log.empty:
-            # 가계부 2.0 구조 대응
+            # 컬럼 개수 확인 (가계부 2.0은 최소 6개 이상이어야 함)
             if len(df_log.columns) >= 6:
-                df_log = df_log.iloc[:, [0, 1, 4, 5]] 
-                df_log.columns = ["날짜", "구분", "항목", "수치"]
+                # 2.0 양식: 날짜(0), 구분(1), 내용(4), 금액(5)
+                df_temp = df_log.iloc[:, [0, 1, 4, 5]].copy()
+                df_temp.columns = ["날짜", "구분", "항목", "수치"]
+            elif len(df_log.columns) >= 4:
+                # 옛날 양식 안전책
+                df_temp = df_log.iloc[:, :4].copy()
+                df_temp.columns = ["날짜", "구분", "항목", "수치"]
             else:
-                df_log = df_log.iloc[:, :4]
-                df_log.columns = ["날짜", "구분", "항목", "수치"]
-            
-            df_log['날짜'] = pd.to_datetime(df_log['날짜'].astype(str).str.replace('.', '-'), errors='coerce')
-            
-            # [필터링] 2026년 2월 1일 이후 데이터만 처리
-            start_date = pd.Timestamp("2026-02-01")
-            
-            for _, row in df_log.iterrows():
-                if pd.isna(row["날짜"]): continue
-                
-                # 날짜 필터링 적용
-                if row["날짜"] < start_date: continue
+                df_temp = pd.DataFrame() # 컬럼 부족하면 패스
 
-                val = to_numeric(row["수치"])
-                date_ym = row["날짜"].strftime('%Y-%m')
+            if not df_temp.empty:
+                df_temp['날짜'] = pd.to_datetime(df_temp['날짜'].astype(str).str.replace('.', '-'), errors='coerce')
                 
-                if row["구분"] == "지출":
-                    if row["항목"] == "자산이동": cash_diff -= val
-                    else: card_debt += val
-                elif row["구분"] == "수입":
-                    if row["항목"] != "자산이동": cash_diff += val
-                
-                if date_ym not in monthly_trend: monthly_trend[date_ym] = {"수입": 0, "지출": 0}
-                if row["구분"] == "수입" and row["항목"] != "자산이동": monthly_trend[date_ym]["수입"] += val
-                elif row["구분"] == "지출" and row["항목"] != "자산이동": monthly_trend[date_ym]["지출"] += val
+                # [필터링] 2026년 2월 1일 이후 데이터만 처리
+                start_date = pd.Timestamp("2026-02-01")
 
+                for _, row in df_temp.iterrows():
+                    if pd.isna(row["날짜"]): continue
+                    if row["날짜"] < start_date: continue # 날짜 필터
+
+                    val = to_numeric(row["수치"])
+                    date_ym = row["날짜"].strftime('%Y-%m')
+                    
+                    # 현금 흐름 계산
+                    if row["구분"] == "지출":
+                        if row["항목"] == "자산이동": cash_diff -= val
+                        else: card_debt += val
+                    elif row["구분"] == "수입":
+                        if row["항목"] != "자산이동": cash_diff += val
+                    
+                    # 월별 추세
+                    if date_ym not in monthly_trend: monthly_trend[date_ym] = {"수입": 0, "지출": 0}
+                    if row["구분"] == "수입" and row["항목"] != "자산이동": monthly_trend[date_ym]["수입"] += val
+                    elif row["구분"] == "지출" and row["항목"] != "자산이동": monthly_trend[date_ym]["지출"] += val
+
+        # 3. 주식/코인 병합
         inv_rows = []
         for cat, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
             for name, info in items.items(): inv_rows.append({"항목": name, "val": info['평단'] * info['수량']})
         
         df_total = pd.concat([df_assets, pd.DataFrame(inv_rows)], ignore_index=True)
+
+        # 현금 업데이트 (안전하게 처리)
         if not df_total.empty:
             cash_idx = df_total[df_total['항목'].str.contains('현금', na=False)].index
-            target_idx = cash_idx[0] if not cash_idx.empty else 0
-            df_total.at[target_idx, "val"] += cash_diff
+            if not cash_idx.empty:
+                target_idx = cash_idx[0]
+                df_total.at[target_idx, "val"] += cash_diff
         
         if card_debt > 0: df_total = pd.concat([df_total, pd.DataFrame([{"항목": "카드값(미결제)", "val": -card_debt}])], ignore_index=True)
 
+        # 자산/부채 분리
         a_df = df_total[df_total["val"] >= 0].copy()
         l_df = df_total[df_total["val"] < 0].copy()
         net_worth = a_df["val"].sum() - abs(l_df["val"].sum())
 
+        # --- 화면 표시 ---
         col_tables, col_graph = st.columns([4, 6])
+        
         with col_tables:
             sum_asset = a_df["val"].sum()
             st.metric("자산 총계 (Assets)", format_krw(sum_asset))
@@ -173,7 +181,9 @@ if menu == "투자 & 자산":
                 disp_a = a_df[["항목", "val"]].copy()
                 disp_a["금액"] = disp_a["val"].apply(format_krw)
                 st.dataframe(disp_a[["항목", "금액"]], column_config={"금액": st.column_config.NumberColumn(format="%d원")}, use_container_width=True, hide_index=True)
+            
             st.divider()
+            
             sum_liab = l_df["val"].sum()
             st.metric("부채 총계 (Liabilities)", format_krw(sum_liab))
             if not l_df.empty:
@@ -184,14 +194,18 @@ if menu == "투자 & 자산":
 
         with col_graph:
             st.markdown(f"<h2 style='text-align: right; color: {COLOR_GOOD};'>💎 순자산: {format_krw(net_worth)}</h2>", unsafe_allow_html=True)
-            st.subheader("📉 월별 자산 흐름 (2026.02 ~ )")
+            st.subheader("📉 월별 자산 흐름")
+            
             if monthly_trend:
                 trend_df = pd.DataFrame.from_dict(monthly_trend, orient='index').sort_index()
                 st.line_chart(trend_df, color=[COLOR_GOOD, COLOR_BAD])
             else:
-                st.info("2026년 2월 이후의 데이터가 입력되면 그래프가 표시됩니다.")
+                # 데이터가 없을 때 에러 대신 안내 문구 표시
+                st.info("📉 데이터가 입력되면 자산 흐름 그래프가 나타납니다.")
 
-    except Exception as e: st.error(f"⚠️ 에러: {e}")
+    except Exception as e:
+        st.error(f"데이터 처리 중 오류가 발생했습니다: {e}")
+        st.caption("팁: 구글 시트의 'Log' 탭과 'Assets' 탭이 만들어져 있는지, 헤더(제목줄)가 있는지 확인해주세요.")
 
 # --- [탭 2] 식단 & 건강 ---
 elif menu == "식단 & 건강":
@@ -232,13 +246,23 @@ elif menu == "식단 & 건강":
         cur_kcal = 0
         try:
             df_log = load_sheet_data(GID_MAP["Log"])
-            if not df_log.empty:
+            # 데이터 있을 때만 처리
+            if not df_log.empty and len(df_log.columns) >= 4:
+                # Log 컬럼 매핑 안전장치
+                if len(df_log.columns) >= 6: col_idx = [0, 1, 4, 5]
+                else: col_idx = [0, 1, 2, 3] # 옛날 양식
+
+                df_log = df_log.iloc[:, col_idx]
+                df_log.columns = ["날짜", "구분", "항목", "수치"]
+                
                 df_log['날짜'] = df_log['날짜'].astype(str).str.replace('.', '-')
                 df_today = df_log[df_log['날짜'].str.contains(today_str, na=False)]
+                
                 for k in cur_nutri.keys():
                     cur_nutri[k] = df_today[(df_today['구분']=='식단') & (df_today['항목']==k)]['수치'].apply(to_numeric).sum()
                 cur_kcal = cur_nutri["칼로리"]
         except: pass
+        
         rem = DAILY_GUIDE["칼로리"]["val"] - cur_kcal
         st.metric("남은 칼로리", f"{rem:.0f} kcal", delta=f"-{cur_kcal:.0f} 섭취")
         st.progress(min(cur_kcal / DAILY_GUIDE["칼로리"]["val"], 1.0))
@@ -268,4 +292,24 @@ elif menu == "재고 관리":
                 {"항목": "쿠스쿠스", "수량": "500g", "유통기한": "2027-01-01"}, {"항목": "우동사리", "수량": "3봉", "유통기한": "-"},
                 {"항목": "라면", "수량": "6봉", "유통기한": "-"}, {"항목": "토마토 페이스트", "수량": "10캔", "유통기한": "2027-05-15"},
                 {"항목": "나시고랭 소스", "수량": "1팩", "유통기한": "2026-11-20"}, {"항목": "치아씨드/아사이베리", "수량": "보유", "유통기한": "-"},
-                {"항목": "김치 4종", "수량": "보유", "유통기한": "-"}, {"항목": "당근", "수량": "보유", "유통기한": "-"}, {"항목": "감자", "수량": "보유",
+                {"항목": "김치 4종", "수량": "보유", "유통기한": "-"}, {"항목": "당근", "수량": "보유", "유통기한": "-"}, {"항목": "감자", "수량": "보유", "유통기한": "-"}
+            ])
+        st.session_state.inventory = st.data_editor(st.session_state.inventory, num_rows="dynamic", use_container_width=True, key="inv")
+    with c2:
+        st.subheader("⏰ 생활용품 교체")
+        if 'supplies' not in st.session_state:
+            st.session_state.supplies = pd.DataFrame([
+                {"품목": "칫솔(정원)", "최근교체일": "2026-01-15", "주기": 30}, {"품목": "칫솔(서진)", "최근교체일": "2026-02-15", "주기": 30},
+                {"품목": "면도날", "최근교체일": "2026-02-01", "주기": 14}, {"품목": "수세미", "최근교체일": "2026-02-15", "주기": 30},
+                {"품목": "정수기필터", "최근교체일": "2025-12-10", "주기": 120}
+            ])
+        st.session_state.supplies = st.data_editor(st.session_state.supplies, num_rows="dynamic", use_container_width=True, key="sup")
+        try:
+            cdf = st.session_state.supplies.copy()
+            if '주기(일)' in cdf.columns: cdf.rename(columns={'주기(일)': '주기'}, inplace=True)
+            if '주기' not in cdf.columns: cdf['주기'] = 30
+            cdf['최근교체일'] = pd.to_datetime(cdf['최근교체일'], errors='coerce')
+            cdf['교체예정일'] = cdf.apply(lambda x: x['최근교체일'] + pd.Timedelta(days=int(x['주기'])) if pd.notnull(x['최근교체일']) else pd.NaT, axis=1)
+            st.caption("📅 교체 예정일 (자동 계산)")
+            st.dataframe(cdf[['품목', '교체예정일']].assign(교체예정일=cdf['교체예정일'].dt.strftime('%Y-%m-%d').fillna("-")).set_index('품목'), use_container_width=True)
+        except: pass
