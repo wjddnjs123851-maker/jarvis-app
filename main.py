@@ -17,19 +17,22 @@ API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-G
 COLOR_ASSET = "#4dabf7"  
 COLOR_DEBT = "#ff922b"   
 
+# [주식 및 자산 정보 - 정원 님 제공 데이터 100% 일치]
 FIXED_DATA = {
     "stocks": {
-        "삼성전자": {"평단": 78895, "수량": 46}, "SK하이닉스": {"평단": 473521, "수량": 6},
-        "삼성중공업": {"평단": 16761, "수량": 88}, "동성화인텍": {"평단": 22701, "수량": 21}
+        "삼성전자": {"평단": 78895, "수량": 46}, 
+        "SK하이닉스": {"평단": 473521, "수량": 6},
+        "삼성중공업": {"평단": 16761, "수량": 88}, 
+        "동성화인텍": {"평단": 22701, "수량": 21}
     },
     "crypto": {
-        "BTC": {"평단": 137788139, "수량": 0.00181400}, "ETH": {"평단": 4243000, "수량": 0.03417393}
+        "BTC": {"평단": 137788139, "수량": 0.00181400}, 
+        "ETH": {"평단": 4243000, "수량": 0.03417393}
     }
 }
 
 # --- [2. 유틸리티] ---
 def format_krw(val): return f"{int(val):,}".rjust(15) + " 원"
-
 def to_numeric(val):
     try: return int(float(str(val).replace(',', '').replace('원', '').strip()))
     except: return 0
@@ -37,14 +40,9 @@ def to_numeric(val):
 def send_to_sheet(d_type, cat_main, cat_sub, content, value, corpus="Log"):
     payload = {
         "time": datetime.now().strftime('%Y-%m-%d'),
-        "corpus": corpus,
-        "type": d_type,       
-        "cat_main": cat_main, 
-        "cat_sub": cat_sub,   
-        "item": content,      
-        "value": value,       
-        "method": "자비스",    
-        "user": "정원"         
+        "corpus": corpus, "type": d_type, "cat_main": cat_main, 
+        "cat_sub": cat_sub, "item": content, "value": value, 
+        "method": "자비스", "user": "정원"
     }
     try: return requests.post(API_URL, data=json.dumps(payload), timeout=5).status_code == 200
     except: return False
@@ -56,13 +54,13 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [3. 메인 레이아웃] ---
-st.set_page_config(page_title="JARVIS v42.1", layout="wide")
+st.set_page_config(page_title="JARVIS v42.3", layout="wide")
 st.markdown(f"""
     <style>
     .stApp {{ background-color: #ffffff; color: #212529; }}
     [data-testid="stMetricValue"] {{ text-align: right !important; }}
     [data-testid="stTable"] td {{ text-align: right !important; }}
-    .net-wealth-box {{ background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 1px solid {COLOR_ASSET}; margin-bottom: 25px; }}
+    .net-box {{ background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 1px solid {COLOR_ASSET}; margin-bottom: 25px; }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -123,7 +121,7 @@ if menu == "투자 & 자산":
     a_df, l_df = df_final_assets[df_final_assets["val"] >= 0].copy(), df_final_assets[df_final_assets["val"] < 0].copy()
     net_worth = a_df["val"].sum() - abs(l_df["val"].sum())
 
-    st.markdown(f"""<div class="net-wealth-box"><small>가계부 2.0 통합 순자산</small><br><span style="font-size:2.5em; color:{COLOR_ASSET}; font-weight:bold;">{format_krw(net_worth)}</span></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="net-box"><small>가계부 2.0 통합 순자산</small><br><span style="font-size:2.5em; color:{COLOR_ASSET}; font-weight:bold;">{format_krw(net_worth)}</span></div>""", unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("현재 자산 분포")
@@ -139,18 +137,19 @@ with st.sidebar:
         with st.form("health_input_form"):
             in_w = st.number_input("현재 체중 (kg)", 50.0, 150.0, 125.0, step=0.1)
             st.divider()
+            # [팻시크릿 순서: 지방, 콜레스테롤, 나트륨, 탄수화물, 식이섬유, 당, 단백질]
             in_kcal = st.number_input("칼로리 (kcal)", 0, 5000, 0)
-            in_prot = st.number_input("단백질 (g)", 0, 300, 0)
-            in_carb = st.number_input("탄수화물 (g)", 0, 500, 0)
             in_fat = st.number_input("지방 (g)", 0, 200, 0)
-            in_sugar = st.number_input("당류 (g)", 0, 200, 0)
-            in_na = st.number_input("나트륨 (mg)", 0, 5000, 0)
-            in_fiber = st.number_input("식이섬유 (g)", 0, 100, 0)
             in_chole = st.number_input("콜레스테롤 (mg)", 0, 1000, 0)
+            in_na = st.number_input("나트륨 (mg)", 0, 5000, 0)
+            in_carb = st.number_input("탄수화물 (g)", 0, 500, 0)
+            in_fiber = st.number_input("식이섬유 (g)", 0, 100, 0)
+            in_sugar = st.number_input("당 (g)", 0, 200, 0)
+            in_prot = st.number_input("단백질 (g)", 0, 300, 0)
             
             if st.form_submit_button("건강 데이터 저장", use_container_width=True):
                 send_to_sheet("건강", "기록", "체중", "정원", in_w, corpus="Health")
-                nutris = {"칼로리": in_kcal, "단백질": in_prot, "탄수화물": in_carb, "지방": in_fat, "당류": in_sugar, "나트륨": in_na, "식이섬유": in_fiber, "콜레스테롤": in_chole}
+                nutris = {"칼로리": in_kcal, "지방": in_fat, "콜레스테롤": in_chole, "나트륨": in_na, "탄수화물": in_carb, "식이섬유": in_fiber, "당": in_sugar, "단백질": in_prot}
                 for k, v in nutris.items():
                     if v > 0: send_to_sheet("식단", "영양소", k, "정원", v, corpus="Health")
                 st.success("기록 완료"); st.rerun()
@@ -171,7 +170,8 @@ if menu == "식단 & 건강":
     st.header("영양 섭취 및 신체 지표 분석")
     df_log = load_sheet_data(GID_MAP["Log"])
     today_str = datetime.now().strftime('%Y-%m-%d')
-    NUTRI_ORDER = ["칼로리", "단백질", "탄수화물", "지방", "당류", "나트륨", "식이섬유", "콜레스테롤"]
+    # [팻시크릿 순서 고정]
+    NUTRI_ORDER = ["칼로리", "지방", "콜레스테롤", "나트륨", "탄수화물", "식이섬유", "당", "단백질"]
     
     cur_nutri = {k: 0 for k in NUTRI_ORDER}
     if not df_log.empty:
@@ -187,24 +187,25 @@ if menu == "식단 & 건강":
     with col_vis:
         st.subheader("주요 영양소 밸런스")
         for name in ["칼로리", "단백질", "탄수화물", "지방"]:
-            val, target = cur_nutri[name], (2900 if name == "칼로리" else 150)
+            val, target = cur_nutri[name], (2900 if name == "칼로리" else 160)
             st.caption(f"{name} ({val:,.1f} / {target:,.1f})")
             st.progress(min(val / target, 1.0) if target > 0 else 0)
 
-# --- [8. 메인 화면: 재고 관리 (전체 데이터 반영)] ---
+# --- [8. 메인 화면: 재고 관리 (가장 최신 텍스트 정보 반영)] ---
 elif menu == "재고 관리":
     st.header("식재료 및 소모품 관리 시스템")
     if 'inventory' not in st.session_state:
+        # [정원 님 최신 텍스트 제공 데이터 100% 반영]
         all_inventory = [
-            {"구분": "상온", "항목": "올리브유/알룰로스/스테비아", "수량": "보유", "비고": "-"},
-            {"구분": "상온", "항목": "진간장/국간장/맛술/굴소스", "수량": "보유", "비고": "-"},
-            {"구분": "상온", "항목": "불닭소스/스리라차/저당케찹", "수량": "보유", "비고": "-"},
-            {"구분": "상온", "항목": "하이라이스 가루/카무트/현미/쌀", "수량": "보유", "비고": "-"},
-            {"구분": "상온", "항목": "황설탕/고춧가루/후추/소금/통깨/김", "수량": "보유", "비고": "-"},
+            {"구분": "상온", "항목": "올리브유/알룰로스/스테비아/사과식초", "수량": "보유", "비고": "-"},
+            {"구분": "상온", "항목": "진간장/국간장/맛술/굴소스/저당케찹", "수량": "보유", "비고": "-"},
+            {"구분": "상온", "항목": "하이라이스 가루/황설탕/고춧가루/후추", "수량": "보유", "비고": "-"},
+            {"구분": "상온", "항목": "소금/통깨/김", "수량": "보유", "비고": "-"},
+            {"구분": "곡물", "항목": "카무트/현미/쌀", "수량": "보유", "비고": "-"},
             {"구분": "냉장/냉동", "항목": "냉동 삼치", "수량": "4팩", "비고": "2026-05-10"},
             {"구분": "냉장/냉동", "항목": "냉동 닭다리살", "수량": "3팩", "비고": "냉동보관"},
-            {"구분": "냉장/냉동", "항목": "단백질 쉐이크", "수량": "9개", "비고": "초코맛"},
             {"구분": "냉장/냉동", "항목": "토마토 페이스트", "수량": "10캔", "비고": "2027-05-15"},
+            {"구분": "냉장/냉동", "항목": "단백질 쉐이크", "수량": "9개", "비고": "-"},
             {"구분": "냉장/냉동", "항목": "계란/대파/양파/마늘/청양고추", "수량": "보유", "비고": "냉장"},
             {"구분": "냉장/냉동", "항목": "닭가슴살 스테이크", "수량": "보유", "비고": "냉동"}
         ]
