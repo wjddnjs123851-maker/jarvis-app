@@ -23,8 +23,8 @@ COLOR_TEXT = "#fafafa"
 DAILY_GUIDE = {
     "칼로리": {"val": 2900.0, "unit": "kcal"}, "지방": {"val": 90.0, "unit": "g"},
     "콜레스테롤": {"val": 300.0, "unit": "mg"}, "나트륨": {"val": 2300.0, "unit": "mg"},
-    "탄수화물": {"val": 360.0, "unit": "g"}, "식이섬유": {"val": 30.0, "unit": "g"},
-    "당": {"val": 50.0, "unit": "g"}, "단백질": {"val": 160.0, "unit": "g"}
+    "탄수화물": {"val": 360.0, "unit": "g"}, "당": {"val": 50.0, "unit": "g"},
+    "단백질": {"val": 160.0, "unit": "g"}
 }
 
 FIXED_DATA = {
@@ -53,7 +53,7 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [2. UI 레이아웃 설정] ---
-st.set_page_config(page_title="JARVIS v40.3", layout="wide")
+st.set_page_config(page_title="JARVIS v40.4", layout="wide")
 st.markdown(f"""
     <style>
     .stApp {{ background-color: #0e1117; color: {COLOR_TEXT}; }}
@@ -93,14 +93,12 @@ if menu == "투자 & 자산":
         df_assets = load_sheet_data(GID_MAP["Assets"])
         df_log = load_sheet_data(GID_MAP["Log"])
         
-        # Assets 데이터 정제
         if not df_assets.empty:
             df_assets = df_assets.iloc[:, :2]
             df_assets.columns = ["항목", "금액"]
             df_assets["val"] = df_assets["금액"].apply(to_numeric)
         else: df_assets = pd.DataFrame(columns=["항목", "val"])
 
-        # Log 데이터 분석 (2026-02-01 이후 신규 데이터 기준)
         monthly_trend = {}; new_card_debt = 0; df_clean = pd.DataFrame()
         if not df_log.empty:
             df_clean = df_log.iloc[:, [0, 1, 2, 4]].copy()
@@ -115,7 +113,6 @@ if menu == "투자 & 자산":
                 if row["구분"] == "수입": monthly_trend[date_ym]["수입"] += val
                 else: monthly_trend[date_ym]["지출"] += val
 
-        # 주식 및 코인 병합
         inv_rows = []
         for cat, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
             for name, info in items.items(): inv_rows.append({"항목": name, "val": info['평단'] * info['수량']})
@@ -136,9 +133,7 @@ if menu == "투자 & 자산":
         with c_l:
             st.subheader("🔸 부채")
             st.metric("총 부채", format_krw(l_df["val"].sum()))
-            if not l_df.empty:
-                st.dataframe(l_df.assign(금액=l_df["val"].apply(lambda x: format_krw(abs(x))))[["항목", "금액"]], use_container_width=True, hide_index=True)
-            else: st.info("현재 부채가 없습니다.")
+            st.dataframe(l_df.assign(금액=l_df["val"].apply(lambda x: format_krw(abs(x))))[["항목", "금액"]], use_container_width=True, hide_index=True)
         with c_n:
             st.markdown(f"<div style='background-color:#1c1e26; padding:15px; border-radius:10px; text-align:center; border:1px solid {COLOR_GOOD};'>", unsafe_allow_html=True)
             st.markdown(f"<h3 style='margin:0; color:gray;'>순자산</h3><h1 style='margin:0; color:{COLOR_GOOD};'>{format_krw(net_worth)}</h1></div>", unsafe_allow_html=True)
@@ -153,8 +148,7 @@ if menu == "투자 & 자산":
             m1.metric("총 수입", format_krw(inc)); m2.metric("총 지출", format_krw(exp), delta_color="inverse"); m3.metric("월 수지", format_krw(inc-exp))
         else: st.info("📉 2026년 2월 이후의 내역을 입력하면 통계가 나타납니다.")
     except Exception as e: st.error(f"⚠️ 시스템 오류: {e}")
-
-elif menu == "식단 & 건강":
+        elif menu == "식단 & 건강":
     st.header("🥗 실시간 영양 분석 리포트")
     d_day = (date(2026, 5, 30) - date.today()).days
     st.info(f"💍 결혼식까지 D-{d_day} | 정원님 125kg 기준 감량 모드")
@@ -170,6 +164,10 @@ elif menu == "식단 & 건강":
                 st.number_input("단백질 (g)", 0.0); st.number_input("지방 (g)", 0.0)
                 st.number_input("식이섬유 (g)", 0.0); st.number_input("콜레스테롤 (mg)", 0.0)
             if st.form_submit_button("✅ 저장"): st.success("식단 저장 완료")
+    with col_sum:
+        st.subheader("📊 오늘의 요약")
+        st.metric("목표 칼로리", "2,900 kcal", delta="-1,200 섭취")
+        st.progress(0.4)
 
 elif menu == "재고 관리":
     st.header("📦 식자재 및 생활용품 관리")
@@ -187,6 +185,8 @@ elif menu == "재고 관리":
             {"항목": "우동사리", "수량": "3봉", "유통기한": "-"},
             {"항목": "라면", "수량": "6봉", "유통기한": "-"},
             {"항목": "토마토 페이스트", "수량": "10캔", "유통기한": "2027-05-15"},
+            {"항목": "나시고랭 소스", "수량": "1팩", "유통기한": "2026-11-20"},
+            {"항목": "치아씨드/아사이베리", "수량": "보유", "유통기한": "-"},
             {"항목": "김치 4종", "수량": "보유", "유통기한": "-"},
             {"항목": "당근", "수량": "보유", "유통기한": "-"},
             {"항목": "감자", "수량": "보유", "유통기한": "-"}
@@ -201,4 +201,9 @@ elif menu == "재고 관리":
             {"품목": "수세미", "최근교체일": "2026-02-15", "주기": 30},
             {"품목": "정수기필터", "최근교체일": "2025-12-10", "주기": 120}
         ]
-        st.data_editor(pd.DataFrame(sup_data), use_container_width=True, hide_index=True)
+        sdf = pd.DataFrame(sup_data)
+        sdf['최근교체일'] = pd.to_datetime(sdf['최근교체일'])
+        sdf['교체예정일'] = sdf.apply(lambda x: x['최근교체일'] + pd.Timedelta(days=x['주기']), axis=1)
+        st.data_editor(sdf[['품목', '최근교체일', '주기']], use_container_width=True, hide_index=True)
+        st.caption("📅 교체 예정일 (자동 계산)")
+        st.dataframe(sdf[['품목', '교체예정일']].assign(교체예정일=sdf['교체예정일'].dt.strftime('%Y-%m-%d')), use_container_width=True, hide_index=True)
