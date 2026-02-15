@@ -108,45 +108,56 @@ if menu == "투자 & 자산":
     st.header("💰 투자 및 종합 자산 관리")
     
     try:
-        # 1. 데이터 로드 (Assets 탭)
+        # 1. 데이터 로드
         df_assets = load_sheet_data(GID_MAP["Assets"])
         df_log = load_sheet_data(GID_MAP["Log"])
         
-        # [수정] Assets 데이터 정제 (컬럼 개수 에러 방지)
+        # Assets 데이터 정제
         if not df_assets.empty:
-            # 2번째 컬럼까지만 사용 (항목, 금액 외 불필요한 컬럼 제거)
-            df_assets = df_assets.iloc[:, :2] 
-            df_assets.columns = ["항목", "금액"] 
+            df_assets = df_assets.iloc[:, :2] # 앞의 2열만 사용
+            df_assets.columns = ["항목", "금액"]
             df_assets["val"] = df_assets["금액"].apply(to_numeric)
         
-        # 2. 로그 분석
+        # 2. 로그 분석 (날짜 파싱 강화)
         cash_diff, card_debt = 0, 0
         monthly_trend = {} 
 
         if not df_log.empty:
-            df_log.columns = ["날짜", "구분", "항목", "수치"] # Log 탭 구조 가정
+            # 컬럼 이름 강제 통일 (시트 헤더가 뭐든 상관없이 순서대로 매핑)
+            df_log = df_log.iloc[:, :4] 
+            df_log.columns = ["날짜", "구분", "항목", "수치"]
+            
+            # [핵심] 날짜 변환 (YYYY.MM.DD -> YYYY-MM-DD)
+            df_log['날짜'] = pd.to_datetime(df_log['날짜'].astype(str).str.replace('.', '-'), errors='coerce')
+
             for _, row in df_log.iterrows():
+                if pd.isna(row["날짜"]): continue # 날짜 없으면 스킵
+
                 val = to_numeric(row["수치"])
-                date_ym = str(row["날짜"])[:7]
+                date_ym = row["날짜"].strftime('%Y-%m') # YYYY-MM 추출
                 
+                # 현재 자산 상태 계산
                 if row["구분"] == "지출":
                     if row["항목"] == "자산이동": cash_diff -= val
                     else: card_debt += val
                 elif row["구분"] == "수입":
                     if row["항목"] != "자산이동": cash_diff += val
                 
+                # 월별 추세 집계
                 if date_ym not in monthly_trend: monthly_trend[date_ym] = {"수입": 0, "지출": 0}
-                if row["구분"] == "수입" and row["항목"] != "자산이동": monthly_trend[date_ym]["수입"] += val
-                elif row["구분"] == "지출" and row["항목"] != "자산이동": monthly_trend[date_ym]["지출"] += val
+                if row["구분"] == "수입" and row["항목"] != "자산이동": 
+                    monthly_trend[date_ym]["수입"] += val
+                elif row["구분"] == "지출" and row["항목"] != "자산이동":
+                    monthly_trend[date_ym]["지출"] += val
 
-        # 3. 주식/코인 데이터 병합
+        # 3. 주식/코인 합산
         inv_rows = []
         for cat, items in {"주식": FIXED_DATA["stocks"], "코인": FIXED_DATA["crypto"]}.items():
             for name, info in items.items(): inv_rows.append({"항목": name, "val": info['평단'] * info['수량']})
         
         df_total = pd.concat([df_assets, pd.DataFrame(inv_rows)], ignore_index=True)
 
-        # 4. 현금 업데이트
+        # 4. 현금 및 카드값 반영
         if not df_total.empty:
             cash_idx = df_total[df_total['항목'].str.contains('현금', na=False)].index
             target_idx = cash_idx[0] if not cash_idx.empty else 0
@@ -154,28 +165,26 @@ if menu == "투자 & 자산":
 
         if card_debt > 0: df_total = pd.concat([df_total, pd.DataFrame([{"항목": "카드값(미결제)", "val": -card_debt}])], ignore_index=True)
 
-        # 5. 분리 및 순자산 계산
+        # 5. 결과 출력
         a_df = df_total[df_total["val"] >= 0].copy()
         l_df = df_total[df_total["val"] < 0].copy()
         net_worth = a_df["val"].sum() - abs(l_df["val"].sum())
 
-        # [그래프]
         st.subheader("📉 월별 자산 흐름")
         if monthly_trend:
             trend_df = pd.DataFrame.from_dict(monthly_trend, orient='index').sort_index()
             st.line_chart(trend_df, color=["#4CAF50", "#FF4B4B"])
-        else: st.info("데이터가 부족합니다.")
+        else:
+            st.info("시트의 'Log' 탭에 날짜(YYYY.MM.DD), 구분, 항목, 수치 데이터가 있어야 그래프가 나옵니다.")
         
         st.divider()
 
-        # [표] 자산 및 부채 (Total 오류 수정)
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("자산 (Assets)")
             if not a_df.empty:
-                # [핵심 수정] 합계 행을 추가할 때 컬럼 불일치 방지
                 disp_a = a_df[["항목", "val"]].copy()
-                disp_a.loc["Total"] = ["합계", disp_a["val"].sum()] 
+                disp_a.loc["Total"] = ["합계", disp_a["val"].sum()]
                 disp_a["금액"] = disp_a["val"].apply(format_krw)
                 st.dataframe(disp_a[["항목", "금액"]], use_container_width=True, hide_index=True)
 
@@ -191,7 +200,7 @@ if menu == "투자 & 자산":
         st.markdown(f"<h2 style='text-align: right; color: #1E90FF;'>💎 순자산: {format_krw(net_worth)}</h2>", unsafe_allow_html=True)
 
     except Exception as e:
-        st.error(f"⚠️ 데이터 처리 중 문제가 발생했습니다: {e}")
+        st.error(f"데이터 처리 오류: {e}")
 
 # --- [탭 2] 식단 & 건강 ---
 elif menu == "식단 & 건강":
@@ -229,40 +238,61 @@ elif menu == "식단 & 건강":
                         saved_count += 1
                 if saved_count > 0: st.success(f"{saved_count}건 저장 완료"); st.rerun()
 
-    with col_summary:
+ with col_summary:
         st.subheader("📊 오늘의 요약")
+        # 데이터 집계
         cur_nutri = {k: 0 for k in DAILY_GUIDE.keys()}
         today_str = datetime.now().strftime('%Y-%m-%d')
         current_kcal = 0
         try:
             df_log = load_sheet_data(GID_MAP["Log"])
             if not df_log.empty:
-                df_today = df_log[df_log['날짜'].astype(str).str.contains(today_str, na=False)]
+                # 날짜 형식 통일 (YYYY.MM.DD 또는 YYYY-MM-DD 모두 허용)
+                df_log['날짜'] = df_log['날짜'].astype(str).str.replace('.', '-')
+                df_today = df_log[df_log['날짜'].str.contains(today_str, na=False)]
+                
                 for nut in cur_nutri.keys():
                     n_df = df_today[(df_today['구분'] == '식단') & (df_today['항목'] == nut)]
                     cur_nutri[nut] = n_df['수치'].apply(to_numeric).sum()
                 current_kcal = cur_nutri["칼로리"]
         except: pass
 
+        # 1. 칼로리
         rem_kcal = DAILY_GUIDE["칼로리"]["val"] - current_kcal
         st.metric("남은 칼로리", f"{rem_kcal:.0f} kcal", delta=f"-{current_kcal:.0f} 섭취")
         st.progress(min(current_kcal / DAILY_GUIDE["칼로리"]["val"], 1.0))
+        
         st.divider()
-        for name in ["탄수화물", "단백질", "지방", "나트륨"]:
+        
+        # 2. 모든 영양소 표시 (2열로 배치)
+        st.markdown("**영양소 밸런스**")
+        n_c1, n_c2 = st.columns(2)
+        
+        # 표시할 영양소 리스트 나누기
+        nut_list = list(DAILY_GUIDE.keys())
+        nut_list.remove("칼로리") # 칼로리는 위에서 보여줬으니 제외
+        
+        for idx, name in enumerate(nut_list):
             val = cur_nutri[name]
             guide = DAILY_GUIDE[name]
-            st.caption(f"{name} ({val:.0f}/{guide['val']}{guide['unit']})")
-            st.progress(min(val / guide['val'], 1.0))
+            # 왼쪽/오른쪽 컬럼 번갈아가며 배치
+            target_col = n_c1 if idx % 2 == 0 else n_c2
+            with target_col:
+                st.caption(f"{name}")
+                st.progress(min(val / guide['val'], 1.0))
+                st.write(f"{val:.0f} / {guide['val']}{guide['unit']}")
+
         st.divider()
+        
+        # 3. 체중 그래프
         try:
             if not df_log.empty:
                 w_df = df_log[(df_log["구분"] == "건강") & (df_log["항목"] == "체중")].copy()
                 if not w_df.empty:
-                    w_df["날짜"] = pd.to_datetime(w_df["날짜"])
+                    w_df["날짜"] = pd.to_datetime(w_df["날짜"], errors='coerce')
                     w_df["수치"] = w_df["수치"].apply(to_numeric)
                     st.line_chart(w_df.set_index("날짜")[["수치"]].sort_index(), color="#FF4B4B", height=150)
         except: pass
-
 # --- [탭 3] 재고 관리 ---
 elif menu == "재고 관리":
     st.header("📦 식자재 및 생활용품 관리")
