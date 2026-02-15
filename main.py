@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- [1. 시스템 설정] ---
 SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
@@ -22,9 +22,13 @@ def to_numeric(val):
         return int(float(str(val).replace(',', '').replace('원', '').strip()))
     except: return 0
 
+def get_current_time():
+    # 서버 시간 오류 수정: 현재 한국 표준시(UTC+9) 반영
+    now = datetime.utcnow() + timedelta(hours=9)
+    return now.strftime('%Y-%m-%d %H:%M:%S')
+
 def get_weather():
     try:
-        # 평택 좌표 기반 실시간 날씨
         w_url = "https://api.open-meteo.com/v1/forecast?latitude=36.99&longitude=127.11&current_weather=true&timezone=auto"
         res = requests.get(w_url, timeout=2).json()
         temp = res['current_weather']['temperature']
@@ -35,7 +39,7 @@ def get_weather():
 
 def send_to_sheet(d_type, cat_main, cat_sub, content, value, corpus="Log"):
     payload = {
-        "time": datetime.now().strftime('%Y-%m-%d'),
+        "time": get_current_time().split(' ')[0],
         "corpus": corpus, "type": d_type, "cat_main": cat_main, 
         "cat_sub": cat_sub, "item": content, "value": value, 
         "method": "자비스", "user": "정원"
@@ -43,14 +47,14 @@ def send_to_sheet(d_type, cat_main, cat_sub, content, value, corpus="Log"):
     try: return requests.post(API_URL, data=json.dumps(payload), timeout=5).status_code == 200
     except: return False
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=2) # 데이터 갱신 주기 단축
 def load_sheet_data(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
     try: return pd.read_csv(url).dropna(how='all').reset_index(drop=True)
     except: return pd.DataFrame()
 
 # --- [3. 메인 레이아웃] ---
-st.set_page_config(page_title="JARVIS v42.6", layout="wide")
+st.set_page_config(page_title="JARVIS v42.7", layout="wide")
 st.markdown(f"""
     <style>
     .stApp {{ background-color: #ffffff; color: #212529; }}
@@ -60,10 +64,10 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-# 헤더 (시간 및 날씨 연동 완료)
+# 헤더 (KST 오후 시간 및 날씨 동기화)
 t_c1, t_c2 = st.columns([7, 3])
 with t_c1: 
-    st.markdown(f"### {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 평택 {get_weather()}")
+    st.markdown(f"### {get_current_time()} | 평택 {get_weather()}")
 with t_c2: 
     st.markdown(f"<div style='text-align:right; color:{COLOR_ASSET}; font-weight:bold;'>JARVIS: ONLINE</div>", unsafe_allow_html=True)
 
@@ -84,7 +88,7 @@ with st.sidebar:
             if a_input > 0 and send_to_sheet(t_choice, c_main, c_sub, content, a_input):
                 st.cache_data.clear(); st.rerun()
 
-# --- [5. 메인 화면: 투자 & 자산 대시보드 (KeyError 해결 버전)] ---
+# --- [5. 메인 화면: 투자 & 자산 대시보드 (에러 해결)] ---
 if menu == "투자 & 자산":
     st.header("종합 자산 관리")
     df_assets_raw = load_sheet_data(GID_MAP["Assets"])
@@ -93,32 +97,34 @@ if menu == "투자 & 자산":
     cash_diff, card_debt = 0, 0
     if not df_log.empty:
         for _, row in df_log.iterrows():
-            val = to_numeric(row.iloc[5]) 
-            if row.iloc[1] == "지출":
-                if row.iloc[2] == "자산이동": cash_diff -= val
-                else: card_debt += val
-            elif row.iloc[1] == "수입":
-                if row.iloc[2] != "자산이동": cash_diff += val
+            try:
+                val = to_numeric(row.iloc[5]) 
+                if row.iloc[1] == "지출":
+                    if row.iloc[2] == "자산이동": cash_diff -= val
+                    else: card_debt += val
+                elif row.iloc[1] == "수입":
+                    if row.iloc[2] != "자산이동": cash_diff += val
+            except: continue
 
     if not df_assets_raw.empty:
-        # 에러 방지를 위해 열 이름을 강제로 지정
+        # KeyError 방지: 열 이름 강제 재설정
         df_assets = df_assets_raw.iloc[:, :2].copy()
         df_assets.columns = ["항목", "금액"]
         df_assets["val"] = df_assets["금액"].apply(to_numeric)
     
         # 가용현금 보정
-        cash_idx = df_assets[df_assets['항목'] == '가용현금'].index
+        cash_idx = df_assets[df_assets['항목'].str.contains('가용현금', na=False)].index
         if not cash_idx.empty: df_assets.at[cash_idx[0], 'val'] += cash_diff
         
         # 카드 미결제액 추가
         if card_debt > 0:
-            df_assets = pd.concat([df_assets, pd.DataFrame([{"항목": "카드 미결제액(지출)", "val": -card_debt}])], ignore_index=True)
+            df_assets = pd.concat([df_assets, pd.DataFrame([{"항목": "이번달 지출(미결제)", "val": -card_debt}])], ignore_index=True)
 
         a_df = df_assets[df_assets["val"] >= 0].copy()
         l_df = df_assets[df_assets["val"] < 0].copy()
         net_worth = a_df["val"].sum() + l_df["val"].sum()
 
-        st.markdown(f"""<div class="net-box"><small>시트 연동 통합 순자산</small><br><span style="font-size:2.5em; color:{COLOR_ASSET}; font-weight:bold;">{format_krw(net_worth)}</span></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="net-box"><small>가계부 2.0 통합 순자산</small><br><span style="font-size:2.5em; color:{COLOR_ASSET}; font-weight:bold;">{format_krw(net_worth)}</span></div>""", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("보유 자산")
@@ -157,7 +163,7 @@ with st.sidebar:
 if menu == "식단 & 건강":
     st.header("영양 분석")
     df_log = load_sheet_data(GID_MAP["Log"])
-    today_str = datetime.now().strftime('%Y-%m-%d')
+    today_str = get_current_time().split(' ')[0]
     NUTRI_ORDER = ["칼로리", "지방", "콜레스테롤", "나트륨", "탄수화물", "식이섬유", "당", "단백질"]
     
     cur_nutri = {k: 0 for k in NUTRI_ORDER}
@@ -165,8 +171,8 @@ if menu == "식단 & 건강":
         df_log['날짜'] = df_log.iloc[:, 0].astype(str)
         df_today = df_log[df_log['날짜'].str.contains(today_str)]
         for k in NUTRI_ORDER:
-            # 시트의 2번째 컬럼(구분)이 식단, 4번째 컬럼(소분류)이 영양소명인 행 합산
-            cur_nutri[k] = df_today[(df_today.iloc[:, 1] == '식단') & (df_today.iloc[:, 3] == k)].iloc[:, 5].apply(to_numeric).sum()
+            try: cur_nutri[k] = df_today[(df_today.iloc[:, 1] == '식단') & (df_today.iloc[:, 3] == k)].iloc[:, 5].apply(to_numeric).sum()
+            except: continue
 
     col_stat, col_vis = st.columns([5, 5])
     with col_stat:
