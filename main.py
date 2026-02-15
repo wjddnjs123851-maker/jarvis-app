@@ -1,4 +1,125 @@
-# --- [탭 1] 투자 & 자산 ---
+import streamlit as st
+import pandas as pd
+import requests
+import json
+from datetime import datetime, date
+
+# --- [1. 시스템 설정] ---
+SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
+GID_MAP = {"Log": "308599580", "Finance": "1790876407", "Assets": "1666800532", "Health": "123456789"}
+API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
+
+# [색상 팔레트] 고대비(High Contrast)
+COLOR_GOOD = "#4dabf7" # 파랑 (수입/자산)
+COLOR_BAD = "#ff922b"  # 주황 (지출/부채)
+COLOR_TEXT = "#fafafa" # 흰색
+
+DAILY_GUIDE = {
+    "칼로리": {"val": 2900.0, "unit": "kcal"}, "지방": {"val": 90.0, "unit": "g"},
+    "콜레스테롤": {"val": 300.0, "unit": "mg"}, "나트륨": {"val": 2300.0, "unit": "mg"},
+    "탄수화물": {"val": 360.0, "unit": "g"}, "식이섬유": {"val": 30.0, "unit": "g"},
+    "당": {"val": 50.0, "unit": "g"}, "단백질": {"val": 160.0, "unit": "g"}
+}
+
+FIXED_DATA = {
+    "stocks": {
+        "삼성전자": {"평단": 78895, "수량": 46}, "SK하이닉스": {"평단": 473521, "수량": 6},
+        "삼성중공업": {"평단": 16761, "수량": 88}, "동성화인텍": {"평단": 22701, "수량": 21}
+    },
+    "crypto": {
+        "BTC": {"평단": 137788139, "수량": 0.00181400}, "ETH": {"평단": 4243000, "수량": 0.03417393}
+    }
+}
+
+def format_krw(val): return f"{int(val):,}" + "원"
+def to_numeric(val):
+    try: return int(float(str(val).replace(',', '').replace('원', '').strip()))
+    except: return 0
+def send_to_sheet(d_type, item, value, date_val, corpus="Log"):
+    # 날짜를 문자열로 변환
+    d_str = date_val.strftime('%Y-%m-%d')
+    # 항목(Category)과 내용(Item)을 구분해서 보내야 하지만, 현재 API 구조상 Item에 합쳐서 전송
+    # 추후 API 수정 시 분리 가능. 현재는 '카테고리'를 item으로 전송
+    payload = {"time": d_str, "corpus": corpus, "type": d_type, "item": item, "value": value}
+    try: return requests.post(API_URL, data=json.dumps(payload), timeout=5).status_code == 200
+    except: return False
+@st.cache_data(ttl=5)
+def load_sheet_data(gid):
+    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
+    try: return pd.read_csv(url).dropna(how='all').reset_index(drop=True)
+    except: return pd.DataFrame()
+
+# --- [3. 메인 화면 구성] ---
+st.set_page_config(page_title="JARVIS v39.0", layout="wide")
+st.markdown(f"""
+    <style>
+    .stApp {{ background-color: #0e1117; color: {COLOR_TEXT}; }}
+    [data-testid="stSidebar"] {{ background-color: #262730; }}
+    
+    /* 표 오른쪽 정렬 강제 */
+    [data-testid="stDataFrame"] table td:nth-child(2) {{ text-align: right !important; }}
+    
+    /* 버튼 파란색 */
+    button[kind="secondaryFormSubmit"] {{ background-color: {COLOR_GOOD} !important; color: white !important; border: none !important; }}
+    div[data-testid="stFormSubmitButton"] > button {{ background-color: {COLOR_GOOD} !important; color: white !important; border: none !important; }}
+
+    /* 입력창 디자인 */
+    .stNumberInput input, .stTextInput input, .stDateInput input {{ 
+        background-color: #e9ecef !important; color: black !important; font-weight: bold; 
+    }}
+    .stSelectbox div[data-baseweb="select"] > div {{ background-color: #e9ecef !important; color: black !important; }}
+    
+    h1, h2, h3, p {{ color: {COLOR_TEXT} !important; }}
+    </style>
+""", unsafe_allow_html=True)
+
+try:
+    kst_now = datetime.now() + pd.Timedelta(hours=9)
+    date_str = kst_now.strftime('%Y-%m-%d %H:%M')
+    w_url = "https://api.open-meteo.com/v1/forecast?latitude=36.99&longitude=127.11&current_weather=true&timezone=auto"
+    w_res = requests.get(w_url, timeout=1).json()
+    temp = w_res['current_weather']['temperature']
+    w_code = w_res['current_weather']['weathercode']
+    icon = "☀️" if w_code <= 3 else "☁️" if w_code <= 48 else "🌧️" if w_code <= 80 else "❄️"
+    weather_str = f"{icon} {temp}°C"
+except:
+    date_str = datetime.now().strftime('%Y-%m-%d')
+    weather_str = "기상 정보 로딩 실패"
+
+t_c1, t_c2 = st.columns([7, 3])
+with t_c1: st.markdown(f"### 📅 {date_str} (KST) | {weather_str} (평택)")
+with t_c2: st.markdown(f"<div style='text-align:right; color:{COLOR_GOOD};'><b>SYSTEM STATUS: ONLINE (v39.0)</b></div>", unsafe_allow_html=True)
+
+# --- [사이드바: 입력창] ---
+with st.sidebar:
+    st.title("JARVIS 제어 센터")
+    menu = st.radio("메뉴 선택", ["투자 & 자산", "식단 & 건강", "재고 관리"])
+    st.divider()
+    
+    # [입력창] 투자 & 자산 탭일 때 활성화
+    if menu == "투자 & 자산":
+        st.subheader("💰 입출금 내역 입력")
+        with st.form("asset_input_form"):
+            date_in = st.date_input("날짜", datetime.now())
+            t_choice = st.selectbox("구분", ["지출", "수입"])
+            
+            if t_choice == "지출": 
+                cats = ["식비", "생활/마트", "주거/통신", "건강/의료", "교통/차량", "금융/보험", "경조사/선물", "취미/여가", "기타"]
+            else: 
+                cats = ["급여", "금융소득", "기타수입", "자산이동"]
+            
+            c_choice = st.selectbox("카테고리", cats)
+            # 세부 내용은 API 구조상 현재는 '항목'으로 통합 전송 (추후 확장 가능)
+            item_in = st.text_input("내용 (예: 점심 국밥)", "") 
+            a_input = st.number_input("금액(원)", min_value=0, step=1000)
+            
+            if st.form_submit_button("💾 내역 저장", use_container_width=True):
+                if a_input > 0:
+                    # 내용이 비어있으면 카테고리명으로 대체
+                    final_item = f"{c_choice} - {item_in}" if item_in else c_choice
+                    if send_to_sheet(t_choice, final_item, a_input, date_in, corpus="Finance"):
+                        st.success("저장 완료!"); st.rerun()
+                        # --- [탭 1] 투자 & 자산 ---
 if menu == "투자 & 자산":
     # ----------------------------------------------------
     # SECTION 1: 종합 자산 현황 (Stock)
