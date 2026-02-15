@@ -9,10 +9,10 @@ SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
 GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532", "Health": "123456789"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# [색상 팔레트] 고대비(High Contrast)
-COLOR_GOOD = "#4dabf7" # 밝은 파랑 (자산/수입)
-COLOR_BAD = "#ff922b"  # 밝은 주황 (부채/지출)
-COLOR_TEXT = "#fafafa" # 흰색 텍스트
+# [색상 팔레트]
+COLOR_GOOD = "#4dabf7" # 자산 (파랑)
+COLOR_BAD = "#ff922b"  # 부채 (주황)
+COLOR_TEXT = "#fafafa"
 
 DAILY_GUIDE = {
     "칼로리": {"val": 2900.0, "unit": "kcal"}, "지방": {"val": 90.0, "unit": "g"},
@@ -63,14 +63,18 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [3. 메인 화면 구성] ---
-st.set_page_config(page_title="JARVIS v38.3", layout="wide")
+st.set_page_config(page_title="JARVIS v38.4", layout="wide")
 st.markdown(f"""
     <style>
-    /* 다크모드 기본 */
     .stApp {{ background-color: #0e1117; color: {COLOR_TEXT}; }}
     [data-testid="stSidebar"] {{ background-color: #262730; }}
     
-    /* [버튼 수정] 기록 저장 버튼 파란색 강제 적용 */
+    /* [핵심] 표의 2번째 컬럼(금액)을 강제로 오른쪽 정렬 */
+    [data-testid="stDataFrame"] table td:nth-child(2) {{
+        text-align: right !important;
+    }}
+    
+    /* 버튼 스타일 */
     button[kind="secondaryFormSubmit"] {{
         background-color: {COLOR_GOOD} !important;
         color: white !important;
@@ -82,17 +86,9 @@ st.markdown(f"""
         border: none !important;
     }}
 
-    /* [입력창 수정] 배경은 밝게, 글씨는 검게 (시인성 확보) */
-    .stNumberInput input {{ 
-        background-color: #e9ecef !important; 
-        color: black !important; 
-        font-weight: bold;
-    }}
-    /* 셀렉트박스 글씨도 검게 */
-    .stSelectbox div[data-baseweb="select"] > div {{
-        background-color: #e9ecef !important;
-        color: black !important;
-    }}
+    /* 입력창 가시성 */
+    .stNumberInput input {{ background-color: #e9ecef !important; color: black !important; font-weight: bold; }}
+    .stSelectbox div[data-baseweb="select"] > div {{ background-color: #e9ecef !important; color: black !important; }}
     
     h1, h2, h3, p {{ color: {COLOR_TEXT} !important; }}
     </style>
@@ -113,7 +109,7 @@ except:
 
 t_c1, t_c2 = st.columns([7, 3])
 with t_c1: st.markdown(f"### 📅 {date_str} (KST) | {weather_str} (평택)")
-with t_c2: st.markdown(f"<div style='text-align:right; color:{COLOR_GOOD};'><b>SYSTEM STATUS: ONLINE (v38.3)</b></div>", unsafe_allow_html=True)
+with t_c2: st.markdown(f"<div style='text-align:right; color:{COLOR_GOOD};'><b>SYSTEM STATUS: ONLINE (v38.4)</b></div>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.title("JARVIS 제어 센터")
@@ -158,7 +154,6 @@ if menu == "투자 & 자산":
                     else: card_debt += val
                 elif row["구분"] == "수입":
                     if row["항목"] != "자산이동": cash_diff += val
-                
                 if date_ym not in monthly_trend: monthly_trend[date_ym] = {"수입": 0, "지출": 0}
                 if row["구분"] == "수입" and row["항목"] != "자산이동": monthly_trend[date_ym]["수입"] += val
                 elif row["구분"] == "지출" and row["항목"] != "자산이동": monthly_trend[date_ym]["지출"] += val
@@ -179,35 +174,37 @@ if menu == "투자 & 자산":
         l_df = df_total[df_total["val"] < 0].copy()
         net_worth = a_df["val"].sum() - abs(l_df["val"].sum())
 
-        st.subheader("📉 월별 자산 흐름 (2024 ~ 현재)")
-        trend_df = pd.DataFrame.from_dict(monthly_trend, orient='index').sort_index()
-        st.line_chart(trend_df, color=[COLOR_GOOD, COLOR_BAD])
+        # 레이아웃 변경: 왼쪽(표) vs 오른쪽(그래프)
+        col_tables, col_graph = st.columns([4, 6])
         
-        st.divider()
-        c1, c2 = st.columns(2)
-        with c1:
-            st.subheader("자산 (Assets)")
+        # [왼쪽] 자산/부채 표
+        with col_tables:
+            # 1. 자산
+            sum_asset = a_df["val"].sum()
+            st.metric("자산 총계 (Assets)", format_krw(sum_asset)) # 합계 상단 배치
             if not a_df.empty:
                 disp_a = a_df[["항목", "val"]].copy()
-                disp_a.loc["Total"] = ["합계", disp_a["val"].sum()]
-                # [핵심] column_config 사용: 숫자(val)를 유지하며 포맷팅만 적용 -> 정렬 완벽 해결
-                st.dataframe(
-                    disp_a, 
-                    column_config={"val": st.column_config.NumberColumn("금액", format="%d원")},
-                    use_container_width=True, hide_index=True
-                )
-        with c2:
-            st.subheader("부채 (Liabilities)")
+                disp_a["금액"] = disp_a["val"].apply(format_krw)
+                st.dataframe(disp_a[["항목", "금액"]], use_container_width=True, hide_index=True)
+            
+            st.divider()
+            
+            # 2. 부채
+            sum_liab = l_df["val"].sum()
+            st.metric("부채 총계 (Liabilities)", format_krw(sum_liab)) # 합계 상단 배치
             if not l_df.empty:
                 disp_l = l_df[["항목", "val"]].copy()
-                disp_l.loc["Total"] = ["합계", disp_l["val"].sum()]
-                st.dataframe(
-                    disp_l,
-                    column_config={"val": st.column_config.NumberColumn("금액", format="%d원")},
-                    use_container_width=True, hide_index=True
-                )
+                disp_l["금액"] = disp_l["val"].apply(lambda x: format_krw(abs(x)))
+                st.dataframe(disp_l[["항목", "금액"]], use_container_width=True, hide_index=True)
             else: st.success("부채 없음")
-        st.markdown(f"<h2 style='text-align: right; color: {COLOR_GOOD};'>💎 순자산: {format_krw(net_worth)}</h2>", unsafe_allow_html=True)
+
+        # [오른쪽] 그래프 및 순자산
+        with col_graph:
+            st.markdown(f"<h2 style='text-align: right; color: {COLOR_GOOD};'>💎 순자산: {format_krw(net_worth)}</h2>", unsafe_allow_html=True)
+            st.subheader("📉 월별 자산 흐름")
+            trend_df = pd.DataFrame.from_dict(monthly_trend, orient='index').sort_index()
+            st.line_chart(trend_df, color=[COLOR_GOOD, COLOR_BAD]) # 파랑/주황
+
     except Exception as e: st.error(f"⚠️ 에러: {e}")
 
 # --- [탭 2] 식단 & 건강 ---
@@ -271,7 +268,7 @@ elif menu == "식단 & 건강":
                 st.progress(min(val / guide['val'], 1.0))
                 st.write(f"{val:.0f}/{guide['val']}{guide['unit']}")
 
-# --- [탭 3] 재고 관리 (이름 변경 완료) ---
+# --- [탭 3] 재고 관리 ---
 elif menu == "재고 관리":
     st.header("📦 식자재 및 생활용품 관리")
     c1, c2 = st.columns([1, 1])
@@ -292,7 +289,6 @@ elif menu == "재고 관리":
         st.subheader("⏰ 생활용품 교체")
         if 'supplies' not in st.session_state:
             st.session_state.supplies = pd.DataFrame([
-                # [이름 변경] 보스->정원, 약혼녀->서진
                 {"품목": "칫솔(정원)", "최근교체일": "2026-01-15", "주기": 30}, {"품목": "칫솔(서진)", "최근교체일": "2026-02-15", "주기": 30},
                 {"품목": "면도날", "최근교체일": "2026-02-01", "주기": 14}, {"품목": "수세미", "최근교체일": "2026-02-15", "주기": 30},
                 {"품목": "정수기필터", "최근교체일": "2025-12-10", "주기": 120}
