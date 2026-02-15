@@ -6,7 +6,6 @@ from datetime import datetime
 
 # --- [1. 시스템 설정] ---
 SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
-# [업데이트] 정원님의 가계부 2.0 Log 시트 연결 (GID: 308599580)
 GID_MAP = {"Log": "308599580", "Finance": "1790876407", "Assets": "1666800532", "Health": "123456789"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
@@ -32,23 +31,8 @@ FIXED_DATA = {
     }
 }
 
-# [내장 데이터] 2023.12 ~ 2026.02 과거 내역 (History)
-PRELOADED_LOG = {
-    '2023-12': {'수입': 6500, '지출': 1316230},
-    '2024-01': {'수입': 0, '지출': 2583157}, '2024-02': {'수입': 0, '지출': 2741305},
-    '2024-03': {'수입': 0, '지출': 3408143}, '2024-04': {'수입': 0, '지출': 2827850},
-    '2024-05': {'수입': 0, '지출': 3295001}, '2024-06': {'수입': 0, '지출': 2284054},
-    '2024-07': {'수입': 0, '지출': 2823066}, '2024-08': {'수입': 80010, '지출': 2719173},
-    '2024-09': {'수입': 0, '지출': 3525711}, '2024-10': {'수입': 0, '지출': 2434819},
-    '2024-11': {'수입': 0, '지출': 1565880}, '2024-12': {'수입': 0, '지출': 2779780},
-    '2025-01': {'수입': 0, '지출': 1787900}, '2025-02': {'수입': 0, '지출': 2147409},
-    '2025-03': {'수입': 0, '지출': 1942132}, '2025-04': {'수입': 0, '지출': 1909248},
-    '2025-05': {'수입': 0, '지출': 1904382}, '2025-06': {'수입': 0, '지출': 2180225},
-    '2025-07': {'수입': 0, '지출': 2503097}, '2025-08': {'수입': 0, '지출': 2648817},
-    '2025-09': {'수입': 300000, '지출': 3236552}, '2025-10': {'수입': 391400, '지출': 2646558},
-    '2025-11': {'수입': 216800, '지출': 2791200}, '2025-12': {'수입': 13000, '지출': 2463810},
-    '2026-01': {'수입': 279000, '지출': 3564554}, '2026-02': {'수입': 38455, '지출': 1164040}
-}
+# [데이터 초기화] 과거 데이터 삭제됨. 2026년 2월부터 시작.
+PRELOADED_LOG = {} 
 
 def format_krw(val): return f"{int(val):,}" + "원"
 def to_numeric(val):
@@ -65,7 +49,7 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [3. 메인 화면 구성] ---
-st.set_page_config(page_title="JARVIS v38.5", layout="wide")
+st.set_page_config(page_title="JARVIS v38.6", layout="wide")
 st.markdown(f"""
     <style>
     .stApp {{ background-color: #0e1117; color: {COLOR_TEXT}; }}
@@ -101,7 +85,7 @@ except:
 
 t_c1, t_c2 = st.columns([7, 3])
 with t_c1: st.markdown(f"### 📅 {date_str} (KST) | {weather_str} (평택)")
-with t_c2: st.markdown(f"<div style='text-align:right; color:{COLOR_GOOD};'><b>SYSTEM STATUS: ONLINE (v38.5)</b></div>", unsafe_allow_html=True)
+with t_c2: st.markdown(f"<div style='text-align:right; color:{COLOR_GOOD};'><b>SYSTEM STATUS: ONLINE (v38.6)</b></div>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.title("JARVIS 제어 센터")
@@ -111,8 +95,7 @@ with st.sidebar:
         st.subheader("💰 자산 변동 기록")
         with st.form("asset_input"):
             t_choice = st.selectbox("구분", ["지출", "수입"])
-            # 가계부 2.0 대분류에 맞춘 카테고리 예시
-            cats = ["식비", "생활", "주거/통신", "건강/의료", "교통/차량", "금융/보험", "경조사", "기타"] if t_choice == "지출" else ["급여", "금융소득", "기타"]
+            cats = ["식비", "생활", "주거/통신", "건강/의료", "교통/차량", "금융/보험", "경조사", "기타"] if t_choice == "지출" else ["급여", "금융소득", "자산이동", "기타"]
             c_choice = st.selectbox("카테고리", cats)
             a_input = st.number_input("금액(원)", min_value=0, step=1000)
             if st.form_submit_button("기록 저장", use_container_width=True):
@@ -130,13 +113,11 @@ if menu == "투자 & 자산":
             df_assets.columns = ["항목", "금액"]
             df_assets["val"] = df_assets["금액"].apply(to_numeric)
         
-        monthly_trend = PRELOADED_LOG.copy()
+        monthly_trend = {} # 빈 딕셔너리로 시작
         cash_diff, card_debt = 0, 0
         
         if not df_log.empty:
-            # [핵심] 가계부 2.0 구조 대응 (날짜, 구분, 대분류, 소분류, 내용, 금액, 결제수단, 작성자)
-            # 필요한 컬럼만 추출: 날짜(0), 구분(1), 내용(4), 금액(5)
-            # (만약 아직 옛날 양식이면 앞에서 4개만 끊어서 읽음)
+            # 가계부 2.0 구조 대응
             if len(df_log.columns) >= 6:
                 df_log = df_log.iloc[:, [0, 1, 4, 5]] 
                 df_log.columns = ["날짜", "구분", "항목", "수치"]
@@ -145,15 +126,25 @@ if menu == "투자 & 자산":
                 df_log.columns = ["날짜", "구분", "항목", "수치"]
             
             df_log['날짜'] = pd.to_datetime(df_log['날짜'].astype(str).str.replace('.', '-'), errors='coerce')
+            
+            # [필터링] 2026년 2월 1일 이후 데이터만 처리
+            start_date = pd.Timestamp("2026-02-01")
+            
             for _, row in df_log.iterrows():
                 if pd.isna(row["날짜"]): continue
+                
+                # 날짜 필터링 적용
+                if row["날짜"] < start_date: continue
+
                 val = to_numeric(row["수치"])
                 date_ym = row["날짜"].strftime('%Y-%m')
+                
                 if row["구분"] == "지출":
                     if row["항목"] == "자산이동": cash_diff -= val
                     else: card_debt += val
                 elif row["구분"] == "수입":
                     if row["항목"] != "자산이동": cash_diff += val
+                
                 if date_ym not in monthly_trend: monthly_trend[date_ym] = {"수입": 0, "지출": 0}
                 if row["구분"] == "수입" and row["항목"] != "자산이동": monthly_trend[date_ym]["수입"] += val
                 elif row["구분"] == "지출" and row["항목"] != "자산이동": monthly_trend[date_ym]["지출"] += val
@@ -193,9 +184,12 @@ if menu == "투자 & 자산":
 
         with col_graph:
             st.markdown(f"<h2 style='text-align: right; color: {COLOR_GOOD};'>💎 순자산: {format_krw(net_worth)}</h2>", unsafe_allow_html=True)
-            st.subheader("📉 월별 자산 흐름")
-            trend_df = pd.DataFrame.from_dict(monthly_trend, orient='index').sort_index()
-            st.line_chart(trend_df, color=[COLOR_GOOD, COLOR_BAD])
+            st.subheader("📉 월별 자산 흐름 (2026.02 ~ )")
+            if monthly_trend:
+                trend_df = pd.DataFrame.from_dict(monthly_trend, orient='index').sort_index()
+                st.line_chart(trend_df, color=[COLOR_GOOD, COLOR_BAD])
+            else:
+                st.info("2026년 2월 이후의 데이터가 입력되면 그래프가 표시됩니다.")
 
     except Exception as e: st.error(f"⚠️ 에러: {e}")
 
@@ -274,24 +268,4 @@ elif menu == "재고 관리":
                 {"항목": "쿠스쿠스", "수량": "500g", "유통기한": "2027-01-01"}, {"항목": "우동사리", "수량": "3봉", "유통기한": "-"},
                 {"항목": "라면", "수량": "6봉", "유통기한": "-"}, {"항목": "토마토 페이스트", "수량": "10캔", "유통기한": "2027-05-15"},
                 {"항목": "나시고랭 소스", "수량": "1팩", "유통기한": "2026-11-20"}, {"항목": "치아씨드/아사이베리", "수량": "보유", "유통기한": "-"},
-                {"항목": "김치 4종", "수량": "보유", "유통기한": "-"}, {"항목": "당근", "수량": "보유", "유통기한": "-"}, {"항목": "감자", "수량": "보유", "유통기한": "-"}
-            ])
-        st.session_state.inventory = st.data_editor(st.session_state.inventory, num_rows="dynamic", use_container_width=True, key="inv")
-    with c2:
-        st.subheader("⏰ 생활용품 교체")
-        if 'supplies' not in st.session_state:
-            st.session_state.supplies = pd.DataFrame([
-                {"품목": "칫솔(정원)", "최근교체일": "2026-01-15", "주기": 30}, {"품목": "칫솔(서진)", "최근교체일": "2026-02-15", "주기": 30},
-                {"품목": "면도날", "최근교체일": "2026-02-01", "주기": 14}, {"품목": "수세미", "최근교체일": "2026-02-15", "주기": 30},
-                {"품목": "정수기필터", "최근교체일": "2025-12-10", "주기": 120}
-            ])
-        st.session_state.supplies = st.data_editor(st.session_state.supplies, num_rows="dynamic", use_container_width=True, key="sup")
-        try:
-            cdf = st.session_state.supplies.copy()
-            if '주기(일)' in cdf.columns: cdf.rename(columns={'주기(일)': '주기'}, inplace=True)
-            if '주기' not in cdf.columns: cdf['주기'] = 30
-            cdf['최근교체일'] = pd.to_datetime(cdf['최근교체일'], errors='coerce')
-            cdf['교체예정일'] = cdf.apply(lambda x: x['최근교체일'] + pd.Timedelta(days=int(x['주기'])) if pd.notnull(x['최근교체일']) else pd.NaT, axis=1)
-            st.caption("📅 교체 예정일 (자동 계산)")
-            st.dataframe(cdf[['품목', '교체예정일']].assign(교체예정일=cdf['교체예정일'].dt.strftime('%Y-%m-%d').fillna("-")).set_index('품목'), use_container_width=True)
-        except: pass
+                {"항목": "김치 4종", "수량": "보유", "유통기한": "-"}, {"항목": "당근", "수량": "보유", "유통기한": "-"}, {"항목": "감자", "수량": "보유",
