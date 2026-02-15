@@ -6,13 +6,14 @@ from datetime import datetime
 
 # --- [1. 시스템 설정] ---
 SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
-GID_MAP = {"Log": "1716739583", "Finance": "1790876407", "Assets": "1666800532", "Health": "123456789"}
+# [업데이트] 정원님의 가계부 2.0 Log 시트 연결 (GID: 308599580)
+GID_MAP = {"Log": "308599580", "Finance": "1790876407", "Assets": "1666800532", "Health": "123456789"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
-# [색상 팔레트]
-COLOR_GOOD = "#4dabf7" # 자산 (파랑)
-COLOR_BAD = "#ff922b"  # 부채 (주황)
-COLOR_TEXT = "#fafafa"
+# [색상 팔레트] 고대비(High Contrast)
+COLOR_GOOD = "#4dabf7" # 자산/수입 (파랑)
+COLOR_BAD = "#ff922b"  # 부채/지출 (주황)
+COLOR_TEXT = "#fafafa" # 텍스트 (흰색)
 
 DAILY_GUIDE = {
     "칼로리": {"val": 2900.0, "unit": "kcal"}, "지방": {"val": 90.0, "unit": "g"},
@@ -31,6 +32,7 @@ FIXED_DATA = {
     }
 }
 
+# [내장 데이터] 2023.12 ~ 2026.02 과거 내역 (History)
 PRELOADED_LOG = {
     '2023-12': {'수입': 6500, '지출': 1316230},
     '2024-01': {'수입': 0, '지출': 2583157}, '2024-02': {'수입': 0, '지출': 2741305},
@@ -63,28 +65,18 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [3. 메인 화면 구성] ---
-st.set_page_config(page_title="JARVIS v38.4", layout="wide")
+st.set_page_config(page_title="JARVIS v38.5", layout="wide")
 st.markdown(f"""
     <style>
     .stApp {{ background-color: #0e1117; color: {COLOR_TEXT}; }}
     [data-testid="stSidebar"] {{ background-color: #262730; }}
     
-    /* [핵심] 표의 2번째 컬럼(금액)을 강제로 오른쪽 정렬 */
-    [data-testid="stDataFrame"] table td:nth-child(2) {{
-        text-align: right !important;
-    }}
+    /* [핵심] 표의 2번째 컬럼(금액) 오른쪽 정렬 */
+    [data-testid="stDataFrame"] table td:nth-child(2) {{ text-align: right !important; }}
     
-    /* 버튼 스타일 */
-    button[kind="secondaryFormSubmit"] {{
-        background-color: {COLOR_GOOD} !important;
-        color: white !important;
-        border: none !important;
-    }}
-    div[data-testid="stFormSubmitButton"] > button {{
-        background-color: {COLOR_GOOD} !important;
-        color: white !important;
-        border: none !important;
-    }}
+    /* 버튼 스타일 (파란색) */
+    button[kind="secondaryFormSubmit"] {{ background-color: {COLOR_GOOD} !important; color: white !important; border: none !important; }}
+    div[data-testid="stFormSubmitButton"] > button {{ background-color: {COLOR_GOOD} !important; color: white !important; border: none !important; }}
 
     /* 입력창 가시성 */
     .stNumberInput input {{ background-color: #e9ecef !important; color: black !important; font-weight: bold; }}
@@ -109,7 +101,7 @@ except:
 
 t_c1, t_c2 = st.columns([7, 3])
 with t_c1: st.markdown(f"### 📅 {date_str} (KST) | {weather_str} (평택)")
-with t_c2: st.markdown(f"<div style='text-align:right; color:{COLOR_GOOD};'><b>SYSTEM STATUS: ONLINE (v38.4)</b></div>", unsafe_allow_html=True)
+with t_c2: st.markdown(f"<div style='text-align:right; color:{COLOR_GOOD};'><b>SYSTEM STATUS: ONLINE (v38.5)</b></div>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.title("JARVIS 제어 센터")
@@ -119,8 +111,8 @@ with st.sidebar:
         st.subheader("💰 자산 변동 기록")
         with st.form("asset_input"):
             t_choice = st.selectbox("구분", ["지출", "수입"])
-            if t_choice == "지출": cats = ["식비(집밥)", "식비(외식)", "식비(배달)", "식비(편의점)", "생활용품", "건강/의료", "기호품", "주거/통신", "교통/차량", "금융/보험", "결혼준비", "경조사", "자산이동", "기타지출"]
-            else: cats = ["급여", "금융소득", "자산이동", "기타"]
+            # 가계부 2.0 대분류에 맞춘 카테고리 예시
+            cats = ["식비", "생활", "주거/통신", "건강/의료", "교통/차량", "금융/보험", "경조사", "기타"] if t_choice == "지출" else ["급여", "금융소득", "기타"]
             c_choice = st.selectbox("카테고리", cats)
             a_input = st.number_input("금액(원)", min_value=0, step=1000)
             if st.form_submit_button("기록 저장", use_container_width=True):
@@ -142,8 +134,16 @@ if menu == "투자 & 자산":
         cash_diff, card_debt = 0, 0
         
         if not df_log.empty:
-            df_log = df_log.iloc[:, :4]
-            df_log.columns = ["날짜", "구분", "항목", "수치"]
+            # [핵심] 가계부 2.0 구조 대응 (날짜, 구분, 대분류, 소분류, 내용, 금액, 결제수단, 작성자)
+            # 필요한 컬럼만 추출: 날짜(0), 구분(1), 내용(4), 금액(5)
+            # (만약 아직 옛날 양식이면 앞에서 4개만 끊어서 읽음)
+            if len(df_log.columns) >= 6:
+                df_log = df_log.iloc[:, [0, 1, 4, 5]] 
+                df_log.columns = ["날짜", "구분", "항목", "수치"]
+            else:
+                df_log = df_log.iloc[:, :4]
+                df_log.columns = ["날짜", "구분", "항목", "수치"]
+            
             df_log['날짜'] = pd.to_datetime(df_log['날짜'].astype(str).str.replace('.', '-'), errors='coerce')
             for _, row in df_log.iterrows():
                 if pd.isna(row["날짜"]): continue
@@ -174,36 +174,28 @@ if menu == "투자 & 자산":
         l_df = df_total[df_total["val"] < 0].copy()
         net_worth = a_df["val"].sum() - abs(l_df["val"].sum())
 
-        # 레이아웃 변경: 왼쪽(표) vs 오른쪽(그래프)
         col_tables, col_graph = st.columns([4, 6])
-        
-        # [왼쪽] 자산/부채 표
         with col_tables:
-            # 1. 자산
             sum_asset = a_df["val"].sum()
-            st.metric("자산 총계 (Assets)", format_krw(sum_asset)) # 합계 상단 배치
+            st.metric("자산 총계 (Assets)", format_krw(sum_asset))
             if not a_df.empty:
                 disp_a = a_df[["항목", "val"]].copy()
                 disp_a["금액"] = disp_a["val"].apply(format_krw)
-                st.dataframe(disp_a[["항목", "금액"]], use_container_width=True, hide_index=True)
-            
+                st.dataframe(disp_a[["항목", "금액"]], column_config={"금액": st.column_config.NumberColumn(format="%d원")}, use_container_width=True, hide_index=True)
             st.divider()
-            
-            # 2. 부채
             sum_liab = l_df["val"].sum()
-            st.metric("부채 총계 (Liabilities)", format_krw(sum_liab)) # 합계 상단 배치
+            st.metric("부채 총계 (Liabilities)", format_krw(sum_liab))
             if not l_df.empty:
                 disp_l = l_df[["항목", "val"]].copy()
                 disp_l["금액"] = disp_l["val"].apply(lambda x: format_krw(abs(x)))
-                st.dataframe(disp_l[["항목", "금액"]], use_container_width=True, hide_index=True)
+                st.dataframe(disp_l[["항목", "금액"]], column_config={"금액": st.column_config.NumberColumn(format="%d원")}, use_container_width=True, hide_index=True)
             else: st.success("부채 없음")
 
-        # [오른쪽] 그래프 및 순자산
         with col_graph:
             st.markdown(f"<h2 style='text-align: right; color: {COLOR_GOOD};'>💎 순자산: {format_krw(net_worth)}</h2>", unsafe_allow_html=True)
             st.subheader("📉 월별 자산 흐름")
             trend_df = pd.DataFrame.from_dict(monthly_trend, orient='index').sort_index()
-            st.line_chart(trend_df, color=[COLOR_GOOD, COLOR_BAD]) # 파랑/주황
+            st.line_chart(trend_df, color=[COLOR_GOOD, COLOR_BAD])
 
     except Exception as e: st.error(f"⚠️ 에러: {e}")
 
