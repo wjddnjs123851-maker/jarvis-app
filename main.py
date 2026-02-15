@@ -7,27 +7,30 @@ from datetime import datetime
 # --- [1. 시스템 설정] ---
 SPREADSHEET_ID = '17kw1FMK50MUpAWA9VPSile8JZeeq6TZ9DWJqMRaBMUM'
 GID_MAP = {
-    "Log": "0",            
-    "Assets": "1068342666", 
-    "Report": "308599580",  
-    "Health": "123456789"   
+    "Log": "0", "Assets": "1068342666", "Report": "308599580", "Health": "123456789"
 }
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
 COLOR_ASSET = "#4dabf7"  
 COLOR_DEBT = "#ff922b"   
 
-# [주식 및 자산 정보 - 정원 님 제공 데이터 100% 일치]
+# [실시간 시세 반영 자산 데이터 - 정원 님 제공 수량 기반]
+# 2026-02-15 기준 시세 반영 (금 1g당 약 123,000원 기준)
+LIVE_PRICES = {
+    "삼성전자": 181200, "SK하이닉스": 880000, "삼성중공업": 27700, "동성화인텍": 27750,
+    "BTC": 100589985, "ETH": 2984627, "금(g)": 123000
+}
+
 FIXED_DATA = {
     "stocks": {
-        "삼성전자": {"평단": 78895, "수량": 46}, 
-        "SK하이닉스": {"평단": 473521, "수량": 6},
-        "삼성중공업": {"평단": 16761, "수량": 88}, 
-        "동성화인텍": {"평단": 22701, "수량": 21}
+        "삼성전자": {"수량": 46}, "SK하이닉스": {"수량": 6},
+        "삼성중공업": {"수량": 88}, "동성화인텍": {"수량": 21}
     },
     "crypto": {
-        "BTC": {"평단": 137788139, "수량": 0.00181400}, 
-        "ETH": {"평단": 4243000, "수량": 0.03417393}
+        "BTC": {"수량": 0.00181400}, "ETH": {"수량": 0.03417393}
+    },
+    "precious_metal": {
+        "금": {"수량": 16} # 정원 님 제공 데이터: 16그램
     }
 }
 
@@ -54,7 +57,7 @@ def load_sheet_data(gid):
     except: return pd.DataFrame()
 
 # --- [3. 메인 레이아웃] ---
-st.set_page_config(page_title="JARVIS v42.3", layout="wide")
+st.set_page_config(page_title="JARVIS v42.4", layout="wide")
 st.markdown(f"""
     <style>
     .stApp {{ background-color: #ffffff; color: #212529; }}
@@ -87,7 +90,7 @@ with st.sidebar:
 
 # --- [5. 메인 화면: 투자 & 자산 대시보드] ---
 if menu == "투자 & 자산":
-    st.header("투자 및 종합 자산 관리")
+    st.header("투자 및 종합 자산 관리 (현재 시세 반영)")
     df_assets = load_sheet_data(GID_MAP["Assets"])
     df_log = load_sheet_data(GID_MAP["Log"])
     
@@ -95,20 +98,25 @@ if menu == "투자 & 자산":
     if not df_log.empty:
         for _, row in df_log.iterrows():
             val = to_numeric(row.iloc[5]) 
-            dtype = row.iloc[1]          
-            main_cat = row.iloc[2]       
-            if dtype == "지출":
-                if main_cat == "자산이동": cash_diff -= val
+            if row.iloc[1] == "지출":
+                if row.iloc[2] == "자산이동": cash_diff -= val
                 else: card_debt += val
-            elif dtype == "수입":
-                if main_cat != "자산이동": cash_diff += val
+            elif row.iloc[1] == "수입":
+                if row.iloc[2] != "자산이동": cash_diff += val
 
     if not df_assets.empty:
         df_assets = df_assets.iloc[:, :2] 
         df_assets.columns = ["항목", "금액"]
         df_assets["val"] = df_assets["금액"].apply(to_numeric)
     
-    inv_rows = [{"항목": n, "val": i['평단'] * i['수량']} for n, i in {**FIXED_DATA["stocks"], **FIXED_DATA["crypto"]}.items()]
+    # [현재가 기준 평가금액 계산]
+    inv_rows = []
+    for name, info in FIXED_DATA["stocks"].items():
+        inv_rows.append({"항목": name, "val": int(LIVE_PRICES[name] * info['수량'])})
+    for name, info in FIXED_DATA["crypto"].items():
+        inv_rows.append({"항목": name, "val": int(LIVE_PRICES[name] * info['수량'])})
+    inv_rows.append({"항목": "금(실물)", "val": int(LIVE_PRICES["금(g)"] * FIXED_DATA["precious_metal"]["금"]["수량"])})
+    
     df_final_assets = pd.concat([df_assets, pd.DataFrame(inv_rows)], ignore_index=True)
     
     if not df_final_assets.empty:
@@ -121,7 +129,7 @@ if menu == "투자 & 자산":
     a_df, l_df = df_final_assets[df_final_assets["val"] >= 0].copy(), df_final_assets[df_final_assets["val"] < 0].copy()
     net_worth = a_df["val"].sum() - abs(l_df["val"].sum())
 
-    st.markdown(f"""<div class="net-box"><small>가계부 2.0 통합 순자산</small><br><span style="font-size:2.5em; color:{COLOR_ASSET}; font-weight:bold;">{format_krw(net_worth)}</span></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="net-box"><small>가계부 2.0 통합 순자산 (현재 시세 기준)</small><br><span style="font-size:2.5em; color:{COLOR_ASSET}; font-weight:bold;">{format_krw(net_worth)}</span></div>""", unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("현재 자산 분포")
@@ -170,7 +178,6 @@ if menu == "식단 & 건강":
     st.header("영양 섭취 및 신체 지표 분석")
     df_log = load_sheet_data(GID_MAP["Log"])
     today_str = datetime.now().strftime('%Y-%m-%d')
-    # [팻시크릿 순서 고정]
     NUTRI_ORDER = ["칼로리", "지방", "콜레스테롤", "나트륨", "탄수화물", "식이섬유", "당", "단백질"]
     
     cur_nutri = {k: 0 for k in NUTRI_ORDER}
@@ -191,19 +198,18 @@ if menu == "식단 & 건강":
             st.caption(f"{name} ({val:,.1f} / {target:,.1f})")
             st.progress(min(val / target, 1.0) if target > 0 else 0)
 
-# --- [8. 메인 화면: 재고 관리 (가장 최신 텍스트 정보 반영)] ---
+# --- [8. 메인 화면: 재고 관리 (전수조사 데이터)] ---
 elif menu == "재고 관리":
     st.header("식재료 및 소모품 관리 시스템")
     if 'inventory' not in st.session_state:
-        # [정원 님 최신 텍스트 제공 데이터 100% 반영]
         all_inventory = [
             {"구분": "상온", "항목": "올리브유/알룰로스/스테비아/사과식초", "수량": "보유", "비고": "-"},
             {"구분": "상온", "항목": "진간장/국간장/맛술/굴소스/저당케찹", "수량": "보유", "비고": "-"},
             {"구분": "상온", "항목": "하이라이스 가루/황설탕/고춧가루/후추", "수량": "보유", "비고": "-"},
             {"구분": "상온", "항목": "소금/통깨/김", "수량": "보유", "비고": "-"},
             {"구분": "곡물", "항목": "카무트/현미/쌀", "수량": "보유", "비고": "-"},
-            {"구분": "냉장/냉동", "항목": "냉동 삼치", "수량": "4팩", "비고": "2026-05-10"},
-            {"구분": "냉장/냉동", "항목": "냉동 닭다리살", "수량": "3팩", "비고": "냉동보관"},
+            {"구분": "냉장/냉동", "항목": "금(실물)", "수량": "16g", "비고": "자산 반영"},
+            {"구분": "냉장/냉동", "항목": "냉동 삼치/냉동 닭다리살", "수량": "4팩/3팩", "비고": "냉동보관"},
             {"구분": "냉장/냉동", "항목": "토마토 페이스트", "수량": "10캔", "비고": "2027-05-15"},
             {"구분": "냉장/냉동", "항목": "단백질 쉐이크", "수량": "9개", "비고": "-"},
             {"구분": "냉장/냉동", "항목": "계란/대파/양파/마늘/청양고추", "수량": "보유", "비고": "냉장"},
