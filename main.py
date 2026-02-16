@@ -32,9 +32,6 @@ def get_payment_advice(category):
         "경조사": "현금 (계좌이체)"
     }
     return advices.get(category, "KB ALL 카드 (국민 WE:SH All)")
-}
-    }
-    return advices.get(category, "KB ALL 카드 (국민 WE:SH All)")
 
 # --- [3. 유틸리티 함수] ---
 def format_krw(val): 
