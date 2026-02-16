@@ -125,8 +125,10 @@ if menu == "투자 & 자산":
 
         st.markdown(f"""<div class="net-box"><small>통합 순자산</small><br><span style="font-size:2.8em; font-weight:bold;">{{:,.0f}} 원</span></div>""".format(net_worth), unsafe_allow_html=True)
         tc1, tc2 = st.columns(2)
-        with tc1: st.markdown(f"""<div class="total-card"><small style='color:{{COLOR_ASSET}};'>자산 총계</small><br><h3 style='color:{{COLOR_ASSET}} !important;'>{{:,.0f}} 원</h3></div>""".format(COLOR_ASSET=COLOR_ASSET, val=sum_asset), unsafe_allow_html=True)
-        with tc2: st.markdown(f"""<div class="total-card"><small style='color:{{COLOR_DEBT}};'>부채 총계</small><br><h3 style='color:{{COLOR_DEBT} !important;'>{{:,.0f}} 원</h3></div>""".format(COLOR_DEBT=COLOR_DEBT, val=abs(sum_debt)), unsafe_allow_html=True)
+        with tc1: 
+            st.markdown(f"""<div class="total-card"><small style='color:{COLOR_ASSET};'>자산 총계</small><br><h3 style='color:{COLOR_ASSET} !important;'>{sum_asset:,.0f} 원</h3></div>""", unsafe_allow_html=True)
+        with tc2: 
+            st.markdown(f"""<div class="total-card"><small style='color:{COLOR_DEBT};'>부채 총계</small><br><h3 style='color:{COLOR_DEBT} !important;'>{abs(sum_debt):,.0f} 원</h3></div>""", unsafe_allow_html=True)
         
         st.divider(); col1, col2 = st.columns(2)
         with col1: st.subheader("자산 내역"); st.table(a_df.assign(금액=a_df["val"].apply(format_krw))[["항목", "금액"]])
