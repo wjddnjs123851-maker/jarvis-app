@@ -117,9 +117,47 @@ def send_to_sheet(d_date, d_hour, d_type, cat_main, content, value, method, corp
     except: return False
 
 # [실시간 시간 반영] 매 로드마다 한국 시간 갱신
+# [전체 백업 및 시간 표시 섹션]
 now = datetime.utcnow() + timedelta(hours=9)
-st.markdown(f"### {{}} | JARVIS Prime".format(now.strftime('%Y-%m-%d %H:%M:%S')))
+top_col1, top_col2 = st.columns([3, 1])
 
+with top_col1:
+    st.markdown(f"### {now.strftime('%Y-%m-%d %H:%M:%S')} | JARVIS Prime")
+
+with top_col2:
+    if st.button("💾 전체 데이터 백업", use_container_width=True):
+        # 백업할 데이터 수집
+        backup_log = []
+        
+        # 1. 일정 데이터
+        if 'maintenance' in st.session_state:
+            for m in st.session_state.maintenance:
+                backup_log.append(["일정", m['항목'], f"주기:{m['주기']}, 마지막:{m['마지막']}"])
+        
+        # 2. 식재료 데이터
+        if 'food_df_state' in st.session_state:
+            for _, row in st.session_state.food_df_state.iterrows():
+                backup_log.append(["식재료", row['품목'], f"{row['수량']} (기한:{row['기한']})"])
+        
+        # 3. 의약품 데이터
+        if 'med_df_state' in st.session_state:
+            for _, row in st.session_state.med_df_state.iterrows():
+                backup_log.append(["의약품", row['품목'], f"{row['수량']} (기한:{row['기한']})"])
+        
+        # 구글 시트로 전송
+        success_count = 0
+        for entry in backup_log:
+            if send_to_sheet(now.date(), now.hour, entry[0], "백업", entry[1], 0, entry[2], corpus="Log"):
+                success_count += 1
+        
+        if success_count > 0:
+            st.success(f"총 {success_count}건의 데이터가 구글 시트에 안전하게 백업되었습니다.")
+        else:
+            st.error("백업 중 오류가 발생했습니다. API 설정을 확인하세요.")
+
+# --- [사이드바 메뉴 시작] ---
+with st.sidebar:
+# ... 이하 동일
 with st.sidebar:
     st.title("JARVIS CONTROL")
     menu = st.radio("SELECT MENU", ["투자 & 자산", "식단 & 건강", "재고 & 교체관리"])
