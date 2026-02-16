@@ -21,15 +21,14 @@ COLOR_ASSET = "#4dabf7"
 COLOR_DEBT = "#ff922b"  
 
 # [정원 님 요청] 권장 칼로리 2900kcal 및 영양소 재설정
+# [정원 님 요청] 수분(ml) 항목 추가 및 권장량 설정
 RECOMMENDED = {
     "칼로리": 2900, "지방": 70, "콜레스테롤": 300, "나트륨": 2300, 
-    "탄수화물": 350, "식이섬유": 30, "당": 50, "단백질": 170
+    "탄수화물": 350, "식이섬유": 30, "당": 50, "단백질": 170, "수분(ml)": 2000
 }
 
 if 'daily_nutri' not in st.session_state:
     st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}
-
-if 'maintenance' not in st.session_state:
     st.session_state.maintenance = [
         {"항목": "칫솔", "주기": 90, "마지막": "2025-11-20"},
         {"항목": "샤워기필터", "주기": 60, "마지막": "2026-01-10"},
@@ -162,9 +161,27 @@ elif menu == "식단 & 건강":
     health_df = pd.DataFrame(analysis_data)
     health_df.index = health_df.index + 1 # 순번 1번부터
     
-    hc1, hc2 = st.columns(2)
-    with hc1: st.markdown(f"""<div class="net-box"><small>칼로리 잔여</small><br><h2>{{:.1f}} kcal</h2></div>""".format(max(0, 2900 - curr['칼로리'])), unsafe_allow_html=True)
-    with hc2: st.markdown(f"""<div class="net-box"><small>단백질 잔여</small><br><h2>{{:.1f}} g</h2></div>""".format(max(0, 170 - curr['단백질'])), unsafe_allow_html=True)
+    # 핵심 지표 상단 노출 (칼로리, 단백질, 식이섬유, 수분 강조)
+    hc1, hc2, hc3, hc4 = st.columns(4)
+    with hc1: st.markdown(f"""<div class="net-box"><small>칼로리 잔여</small><br><h3>{max(0, 2900 - curr['칼로리']):.0f} kcal</h3></div>""", unsafe_allow_html=True)
+    with hc2: st.markdown(f"""<div class="net-box"><small>단백질 잔여</small><br><h3>{max(0, 170 - curr['단백질']):.1f} g</h3></div>""", unsafe_allow_html=True)
+    with hc3: st.markdown(f"""<div class="net-box"><small>식이섬유 잔여</small><br><h3>{max(0, 30 - curr['식이섬유']):.1f} g</h3></div>""", unsafe_allow_html=True)
+    with hc4: st.markdown(f"""<div class="net-box"><small>수분 잔여</small><br><h3>{max(0, 2000 - curr['수분(ml)']):.0f} ml</h3></div>""", unsafe_allow_html=True)
+
+    curr = st.session_state.daily_nutri
+    # 남은 양 계산 포함 데이터 구성
+    analysis_data = []
+    for k in RECOMMENDED.keys():
+        rem = max(0, RECOMMENDED[k] - curr[k])
+        analysis_data.append({
+            "영양소": k, 
+            "현재 섭취": f"{curr[k]:.2f}", 
+            "권장량": f"{RECOMMENDED[k]:.2f}", 
+            "남은 양": f"{rem:.2f}"
+        })
+    
+    health_df = pd.DataFrame(analysis_data)
+    health_df.index = health_df.index + 1
     st.table(health_df)
 
 # --- [모듈 3: 재고 & 교체관리] ---
