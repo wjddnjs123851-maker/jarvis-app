@@ -96,7 +96,7 @@ def load_sheet_data(gid):
         df = pd.read_csv(url)
         return df.dropna(how='all')
     except: return pd.DataFrame()
-        def send_to_sheet(d_type, cat_main, cat_sub, content, value, method):
+def send_to_sheet(d_type, cat_main, cat_sub, content, value, method):
     payload = {
         "time": get_current_time().split(' ')[0], 
         "corpus": "Log", 
