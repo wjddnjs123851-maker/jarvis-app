@@ -36,8 +36,8 @@ if 'maintenance' not in st.session_state:
 if 'daily_nutri' not in st.session_state:
     st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}
 
-# --- [2. UI 스타일 (네모 상자 잔상 강제 제거)] ---
-st.set_page_config(page_title="JARVIS v61.3", layout="wide")
+# --- [2. UI 스타일 (네모 상자 및 에러 방지)] ---
+st.set_page_config(page_title="JARVIS v61.4", layout="wide")
 st.markdown(f"""
     <style>
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
@@ -45,7 +45,11 @@ st.markdown(f"""
         font-family: 'Pretendard', -apple-system, sans-serif !important;
         text-rendering: optimizeLegibility;
         -webkit-font-smoothing: antialiased;
+    }}
+    /* 글자 옆 네모 상자(커서 잔상) 제거 */
+    input, select, .stSelectbox div {{
         outline: none !important;
+        box-shadow: none !important;
     }}
     .stApp {{ background-color: {COLOR_BG}; color: {COLOR_TEXT}; }}
     h1, h2, h3, p, span, label, div {{ color: {COLOR_TEXT} !important; }}
@@ -58,9 +62,6 @@ st.markdown(f"""
     }}
     .stButton>button:hover {{ border-color: #000000 !important; background-color: #f8f9fa !important; }}
     
-    div[data-baseweb="select"] {{ background-color: #ffffff !important; border: 1px solid #dee2e6 !important; }}
-    div[data-baseweb="select"] * {{ border: none !important; box-shadow: none !important; }}
-
     .net-box {{ background-color: #ffffff; padding: 25px; border-radius: 12px; border: 1px solid #dee2e6; border-left: 5px solid {COLOR_ASSET}; margin-bottom: 20px; }}
     .total-card {{ background-color: #ffffff; padding: 20px; border-radius: 10px; border: 1px solid #dee2e6; text-align: right; }}
     .advice-box {{ background-color: #f1f3f5; padding: 15px; border-radius: 8px; border-left: 5px solid {COLOR_ASSET}; margin-top: 10px; }}
@@ -92,12 +93,16 @@ def get_current_time():
     return (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S')
 
 def load_sheet_data(gid):
-    url = f"https://docs.google.com/spreadsheets/d/{{SPREADSHEET_ID}}/export?format=csv&gid={{gid}}&t={{datetime.now().timestamp()}}".format(SPREADSHEET_ID=SPREADSHEET_ID, gid=gid)
+    # KeyError 해결: f-string 문법 수정
+    ts = datetime.now().timestamp()
+    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}&t={ts}"
     try:
         df = pd.read_csv(url)
         return df.dropna(how='all')
-    except: return pd.DataFrame()
-def send_to_sheet(d_type, cat_main, cat_sub, content, value, method, corpus="Log"):
+    except Exception as e:
+        st.error(f"데이터 로드 실패: {e}")
+        return pd.DataFrame()
+        def send_to_sheet(d_type, cat_main, cat_sub, content, value, method, corpus="Log"):
     payload = {
         "time": get_current_time().split(' ')[0], "corpus": corpus, "type": d_type, 
         "cat_main": cat_main, "cat_sub": cat_sub, "item": content, 
