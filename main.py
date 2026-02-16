@@ -189,22 +189,44 @@ elif menu == "식단 & 건강":
 # --- [모듈 3: 재고 & 교체관리] ---
 elif menu == "재고 & 교체관리":
     st.header("🏠 생활 시스템 관리")
+    
+    # [에러 수정] 실시간 시간 반영 및 데이터 처리
+    today = datetime.utcnow() + timedelta(hours=9)
+    
     st.subheader("🚨 교체 임박 알림")
     for item in st.session_state.maintenance:
-        due_date = datetime.strptime(item["마지막"], "%Y-%m-%d") + timedelta(days=item["주기"])
-        rem = (due_date - now).days
-        if rem <= 7: st.warning(f"**{{item['항목']}}** 교체 {{rem}}일 전 (예정: {{due_date}})".format(item=item, rem=rem, due_date=due_date.date()))
+        # 마지막 교체일로부터 주기 계산
+        last_date = datetime.strptime(item["마지막"], "%Y-%m-%d")
+        due_date = last_date + timedelta(days=item["주기"])
+        rem = (due_date - today).days
+        
+        # 7일 이내 교체 대상 알림 출력
+        if rem <= 7:
+            st.warning(f"**{item['항목']}** 교체 {rem}일 전 (예정: {due_date.strftime('%Y-%m-%d')})")
     
-    st.divider(); c1, c2 = st.columns(2)
+    st.divider()
+    c1, c2 = st.columns(2)
+    
     with c1:
-        st.subheader("📦 주요 재고")
-        inventory = [{"항목": "금(실물)", "수량": "16g"}, {"항목": "토마토 페이스트", "수량": "10캔"}, {"항목": "단백질 쉐이크", "수량": "9개"}]
-        st.table(pd.DataFrame(inventory))
+        st.subheader("📦 주요 재고 현황")
+        # 자산 시트에서 수량 정보를 가져오거나 기본 리스트 출력
+        inventory_data = [
+            {"항목": "금(실물)", "수량": "16g"}, 
+            {"항목": "토마토 페이스트", "수량": "10캔"}, 
+            {"항목": "단백질 쉐이크", "수량": "9개"}
+        ]
+        st.table(pd.DataFrame(inventory_data))
+        
     with c2:
-        st.subheader("⚙️ 관리")
+        st.subheader("⚙️ 교체 기록 갱신")
         target = st.selectbox("품목 선택", [i["항목"] for i in st.session_state.maintenance])
-        if st.button(f"{{}} 교체 완료".format(target)):
+        
+        if st.button(f"{target} 교체 완료 처리"):
             for i in st.session_state.maintenance:
-                if i["항목"] == target: i["마지막"] = now.strftime("%Y-%m-%d")
+                if i["항목"] == target:
+                    i["마지막"] = today.strftime("%Y-%m-%d")
+            st.success(f"{target} 교체 날짜가 오늘로 갱신되었습니다.")
             st.rerun()
+            
+        st.markdown("#### 전체 관리 리스트")
         st.table(pd.DataFrame(st.session_state.maintenance))
