@@ -105,22 +105,14 @@ with t_c1: st.markdown(f"### {get_current_time()} | 평택 {get_weather()}")
 with t_c2: st.markdown(f"<div style='text-align:right; color:{COLOR_ASSET}; font-weight:bold;'>JARVIS v57.0 ONLINE</div>", unsafe_allow_html=True)
 
 # --- [5. 사이드바 메뉴] ---
-with st.sidebar:
-    st.title("JARVIS CONTROL")
-    menu = st.radio("SELECT MENU", ["투자 & 자산", "식단 & 건강", "재고 & 교체관리"])
-    st.divider()
-
-# --- [6. 기능 A: 투자 & 자산] ---
 if menu == "투자 & 자산":
-    st.header("📈 종합 자산 대시보드")
-    
-    with st.sidebar:
         st.subheader("데이터 입력")
         t_choice = st.selectbox("구분", ["지출", "수입"])
-c_main = st.selectbox("대분류", ["식비", "생활용품", "월 구독료", "주거/통신", "교통", "건강", "금융", "경조사", "자산이동"])
+        c_main = st.selectbox("대분류", ["식비", "생활용품", "월 구독료", "주거/통신", "교통", "건강", "금융", "경조사", "자산이동"])
         if t_choice == "지출":
             st.markdown(f"""<div class="advice-box"><small>🛡️ 결제 가이드</small><br><b>{get_payment_advice(c_main)}</b></div>""", unsafe_allow_html=True)
-        c_sub = st.text_input("소분류"); content = st.text_input("상세 내용")
+        c_sub = st.text_input("소분류")
+        content = st.text_input("상세 내용")
         a_input = st.number_input("금액(원)", min_value=0, step=1000)
         method_choice = st.selectbox("지출 수단", ["국민카드(WE:SH)", "현대카드(M경차)", "현대카드(이마트)", "우리카드(주거래)", "하나카드(K-패스)", "하나카드(MG+)", "현금", "계좌이체"])
         if st.button("시트 데이터 전송"):
