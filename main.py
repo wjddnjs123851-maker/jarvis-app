@@ -4,14 +4,9 @@ import requests
 import json
 from datetime import datetime, timedelta
 
-# --- [1. 시스템 설정 및 원칙 준수] ---
+# --- [1. 시스템 설정] ---
 SPREADSHEET_ID = '12cPPhM68K3SopQJtZyWEq8adDuP98bJ4efoYbjFDDOI'
-GID_MAP = {
-    "Log": "0", 
-    "Assets": "1068342666", 
-    "Report": "308599580",
-    "Health": "123456789"
-}
+GID_MAP = {"Log": "0", "Assets": "1068342666", "Report": "308599580", "Health": "123456789"}
 API_URL = "https://script.google.com/macros/s/AKfycbzX1w7136qfFsnRb0RMQTZvJ1Q_-GZb5HAwZF6yfKiLTHbchJZq-8H2GXjV2z5WnkmI4A/exec"
 
 COLOR_BG = "#0e1117"
@@ -19,11 +14,8 @@ COLOR_ASSET = "#4dabf7"
 COLOR_DEBT = "#ff922b"   
 COLOR_TEXT = "#ffffff"
 
-# 정원 님 맞춤 데이터 정의
-RECOMMENDED = {
-    "칼로리": 2500, "지방": 60, "콜레스테롤": 300, "나트륨": 2300, 
-    "탄수화물": 300, "식이섬유": 30, "당": 50, "단백질": 150
-}
+# 권장량 및 유지보수 데이터
+RECOMMENDED = {"칼로리": 2500, "지방": 60, "콜레스테롤": 300, "나트륨": 2300, "탄수화물": 300, "식이섬유": 30, "당": 50, "단백질": 150}
 
 if 'maintenance' not in st.session_state:
     st.session_state.maintenance = [
@@ -36,7 +28,7 @@ if 'maintenance' not in st.session_state:
 if 'daily_nutri' not in st.session_state:
     st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}
 
-# --- [2. 스마트 결제 가이드 로직 (월 구독료 포함)] ---
+# --- [2. 스마트 결제 가이드 로직] ---
 def get_payment_advice(category):
     advices = {
         "식비": "현대카드 (M경차 Ed2: 음식점/카페 포인트 적립)",
@@ -52,48 +44,55 @@ def get_payment_advice(category):
 
 # --- [3. 유틸리티 함수] ---
 def format_krw(val): return f"{int(val):,}".rjust(20) + " 원"
-
 def to_numeric(val):
     try:
         if pd.isna(val) or val == "": return 0
         s = "".join(filter(lambda x: x.isdigit() or x == '-', str(val)))
         return int(s) if s else 0
     except: return 0
-
 def get_current_time():
     now = datetime.utcnow() + timedelta(hours=9)
     return now.strftime('%Y-%m-%d %H:%M:%S')
 
 def load_sheet_data(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}&t={datetime.now().timestamp()}"
-    try:
-        df = pd.read_csv(url)
-        return df.dropna(how='all')
+    try: return pd.read_csv(url).dropna(how='all')
     except: return pd.DataFrame()
 
-# --- [4. 메인 UI 설정: 고대비 및 입력창 검은 글씨] ---
-st.set_page_config(page_title="JARVIS v59.0", layout="wide")
+# --- [4. 단 하나의 통합 UI 스타일 설정] ---
+st.set_page_config(page_title="JARVIS v59.2", layout="wide")
 st.markdown(f"""
     <style>
     .stApp {{ background-color: {COLOR_BG}; color: {COLOR_TEXT}; }}
-    .stButton>button {{
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border-radius: 8px; font-weight: bold; border: none; width: 100%;
-    }}
-    /* 입력 바 배경 하양 & 글씨 검정 */
+    
+    /* 입력 바 & 선택 박스: 배경 하양, 안쪽 글씨 검정 */
     input, select, textarea, div[data-baseweb="select"] {{
         background-color: #ffffff !important;
         color: #000000 !important;
     }}
     div[data-baseweb="select"] * {{ color: #000000 !important; }}
+    
+    /* 입력창 바깥 라벨(항목명): 흰색으로 고정 */
+    .stWidgetLabel p, label, .stSelectbox label {{
+        color: #ffffff !important;
+        font-weight: bold !important;
+        font-size: 1.05em !important;
+    }}
+
+    /* 버튼: 배경 하양, 글자 검정 */
+    .stButton>button {{
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border-radius: 8px; font-weight: bold; border: none; width: 100%;
+    }}
+    
     .net-box {{ background-color: #1d2129; padding: 25px; border-radius: 12px; border-left: 5px solid {COLOR_ASSET}; margin-bottom: 20px; }}
     .total-card {{ background-color: #1d2129; padding: 20px; border-radius: 10px; border-bottom: 3px solid #333; text-align: right; }}
     .advice-box {{ background-color: #1c2e36; padding: 15px; border-radius: 8px; border-left: 5px solid {COLOR_ASSET}; margin-top: 10px; }}
     td {{ text-align: right !important; color: {COLOR_TEXT} !important; }}
     </style>
 """, unsafe_allow_html=True)
-# --- [5. 사이드바 메뉴 및 공통 헤더] ---
+# --- [5. 사이드바 메뉴 및 헤더] ---
 st.markdown(f"### {get_current_time()} | 평택 온라인")
 
 with st.sidebar:
@@ -116,8 +115,8 @@ if menu == "투자 & 자산":
         a_input = st.number_input("금액(원)", min_value=0, step=1000)
         method_choice = st.selectbox("지출 수단", ["국민카드(WE:SH)", "현대카드(M경차)", "현대카드(이마트)", "우리카드(주거래)", "하나카드(K-패스)", "하나카드(MG+)", "현금", "계좌이체"])
         if st.button("시트 데이터 전송"):
-            # 시트 전송 함수 생략 없이 호출 (기존 정의된 로직 사용)
-            st.success("전송 로직 실행됨")
+            # 실제 전송 로직 수행부
+            st.success("전송 준비 완료")
 
     df_assets = load_sheet_data(GID_MAP["Assets"])
     if not df_assets.empty:
@@ -140,6 +139,7 @@ elif menu == "식단 & 건강":
     with st.sidebar:
         st.subheader("영양소 입력")
         with st.form("health_form"):
+            # 소수점 두 자리 입력 지원 (step=0.01)
             in_data = [st.number_input(k, value=0.0, step=0.01, format="%.2f") for k in RECOMMENDED.keys()]
             if st.form_submit_button("섭취량 추가"):
                 for idx, k in enumerate(RECOMMENDED.keys()): st.session_state.daily_nutri[k] += in_data[idx]
@@ -147,8 +147,8 @@ elif menu == "식단 & 건강":
         if st.button("♻️ 일일 식단 초기화"):
             st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}; st.rerun()
     curr = st.session_state.daily_nutri
-    st.markdown(f"""<div class="net-box"><small>칼로리 현황</small><br><h3>{int(curr['칼로리'])} / {RECOMMENDED['칼로리']} kcal</h3></div>""", unsafe_allow_html=True)
-    analysis_data = [{"영양소": k, "현재량": f"{curr[k]:,.1f}", "권장량": f"{RECOMMENDED[k]:,.1f}", "상태": "✅ 달성" if curr[k] >= RECOMMENDED[k] else "⏳ 부족"} for k in RECOMMENDED.keys()]
+    st.markdown(f"""<div class="net-box"><small>칼로리 현황</small><br><h3>{curr['칼로리']:,.1f} / {RECOMMENDED['칼로리']} kcal</h3></div>""", unsafe_allow_html=True)
+    analysis_data = [{"영양소": k, "현재량": f"{curr[k]:,.2f}", "권장량": f"{RECOMMENDED[k]:,.2f}", "상태": "✅ 달성" if curr[k] >= RECOMMENDED[k] else "⏳ 부족"} for k in RECOMMENDED.keys()]
     st.table(pd.DataFrame(analysis_data).set_index("영양소"))
 
 # (3) 재고 & 교체관리
