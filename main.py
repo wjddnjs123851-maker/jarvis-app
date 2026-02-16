@@ -140,7 +140,7 @@ elif menu == "식단 & 건강":
     with st.sidebar:
         st.subheader("영양소 입력")
         with st.form("health_form"):
-            in_data = [st.number_input(k, 0) for k in RECOMMENDED.keys()]
+            in_data = [st.number_input(k, value=0.0, step=0.01, format="%.2f") for k in RECOMMENDED.keys()]
             if st.form_submit_button("섭취량 추가"):
                 for idx, k in enumerate(RECOMMENDED.keys()): st.session_state.daily_nutri[k] += in_data[idx]
                 st.rerun()
