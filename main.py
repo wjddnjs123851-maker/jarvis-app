@@ -188,45 +188,90 @@ elif menu == "식단 & 건강":
 
 # --- [모듈 3: 재고 & 교체관리] ---
 elif menu == "재고 & 교체관리":
-    st.header("🏠 생활 시스템 관리")
-    
-    # [에러 수정] 실시간 시간 반영 및 데이터 처리
+    st.header("🏠 생활 시스템 및 식재료 관리")
     today = datetime.utcnow() + timedelta(hours=9)
     
-    st.subheader("🚨 교체 임박 알림")
-    for item in st.session_state.maintenance:
-        # 마지막 교체일로부터 주기 계산
-        last_date = datetime.strptime(item["마지막"], "%Y-%m-%d")
-        due_date = last_date + timedelta(days=item["주기"])
-        rem = (due_date - today).days
-        
-        # 7일 이내 교체 대상 알림 출력
-        if rem <= 7:
-            st.warning(f"**{item['항목']}** 교체 {rem}일 전 (예정: {due_date.strftime('%Y-%m-%d')})")
-    
+    # 1. 소모품 교체 주기 관리
+    st.subheader("⚙️ 소모품 교체 기록")
+    m_col1, m_col2 = st.columns([2, 1])
+    with m_col1:
+        t_item = st.selectbox("항목 선택", [i["항목"] for i in st.session_state.maintenance])
+    with m_col2:
+        n_date = st.date_input("날짜 수정", value=today.date())
+
+    if st.button(f"{t_item} 기록 업데이트"):
+        for i in st.session_state.maintenance:
+            if i["항목"] == t_item:
+                i["마지막"] = n_date.strftime("%Y-%m-%d")
+        st.success("업데이트 완료"); st.rerun()
+
+    m_df = pd.DataFrame(st.session_state.maintenance)
+    m_df.index = m_df.index + 1
+    st.table(m_df)
+
     st.divider()
-    c1, c2 = st.columns(2)
+
+    # 2. 식재료 인벤토리 관리 (추가/삭제/수정 기능)
+    st.subheader("📦 냉장고 식재료 커스텀 관리")
     
-    with c1:
-        st.subheader("📦 주요 재고 현황")
-        # 자산 시트에서 수량 정보를 가져오거나 기본 리스트 출력
-        inventory_data = [
-            {"항목": "금(실물)", "수량": "16g"}, 
-            {"항목": "토마토 페이스트", "수량": "10캔"}, 
-            {"항목": "단백질 쉐이크", "수량": "9개"}
+    if 'food_stock' not in st.session_state:
+        st.session_state.food_stock = [
+            {"카테고리": "면류", "품목": "라면", "잔량": "5봉지"},
+            {"카테고리": "면류", "품목": "파스타 면", "잔량": "2팩"},
+            {"카테고리": "채소", "품목": "감자", "잔량": "3개"},
+            {"카테고리": "채소", "품목": "당근", "잔량": "2개"},
+            {"카테고리": "육류", "품목": "닭다리살", "잔량": "500g"},
+            {"카테고리": "소스/캔", "품목": "토마토 페이스트", "잔량": "10캔"},
+            {"카테고리": "보충제", "품목": "단백질 쉐이크", "잔량": "9개"}
         ]
-        st.table(pd.DataFrame(inventory_data))
-        
+
+    # [기능 1] 식재료 추가 레이아웃
+    with st.expander("➕ 새 식재료 추가하기"):
+        new_cat = st.selectbox("카테고리", ["육류", "해산물", "채소", "면류", "소스/캔", "기초재료", "기타"])
+        new_name = st.text_input("품목명")
+        new_qty = st.text_input("초기 수량/잔량 (예: 3팩, 충분)")
+        if st.button("냉장고에 추가"):
+            if new_name:
+                st.session_state.food_stock.append({"카테고리": new_cat, "품목": new_name, "잔량": new_qty})
+                st.success(f"'{new_name}'이(가) 추가되었습니다."); st.rerun()
+
+    # [기능 2] 식재료 수정 및 삭제 레이아웃
+    f1, f2, f3 = st.columns([2, 1, 1])
+    with f1:
+        edit_target = st.selectbox("관리할 품목 선택", [f["품목"] for f in st.session_state.food_stock])
+    with f2:
+        update_qty = st.text_input("수량 변경")
+    with f3:
+        st.write("---") # 간격 맞춤
+        del_confirm = st.checkbox("삭제 확인")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("선택 품목 수량 반영"):
+            for f in st.session_state.food_stock:
+                if f["품목"] == edit_target:
+                    f["잔량"] = update_qty
+            st.success(f"{edit_target} 수량 변경 완료"); st.rerun()
     with c2:
-        st.subheader("⚙️ 교체 기록 갱신")
-        target = st.selectbox("품목 선택", [i["항목"] for i in st.session_state.maintenance])
-        
-        if st.button(f"{target} 교체 완료 처리"):
-            for i in st.session_state.maintenance:
-                if i["항목"] == target:
-                    i["마지막"] = today.strftime("%Y-%m-%d")
-            st.success(f"{target} 교체 날짜가 오늘로 갱신되었습니다.")
-            st.rerun()
-            
-        st.markdown("#### 전체 관리 리스트")
-        st.table(pd.DataFrame(st.session_state.maintenance))
+        if st.button("선택 품목 영구 삭제"):
+            if del_confirm:
+                st.session_state.food_stock = [f for f in st.session_state.food_stock if f["품목"] != edit_target]
+                st.warning(f"{edit_target} 삭제 완료"); st.rerun()
+            else:
+                st.error("삭제하려면 '삭제 확인'을 체크하세요.")
+
+    # 현황 테이블 출력 (순번 1부터)
+    if st.session_state.food_stock:
+        food_df = pd.DataFrame(st.session_state.food_stock)
+        food_df.index = food_df.index + 1
+        st.table(food_df)
+    else:
+        st.info("냉장고가 비어있습니다. 식재료를 추가해주세요.")
+
+    # 🚨 교체 임박 알림
+    st.subheader("⚠️ 알림")
+    for item in st.session_state.maintenance:
+        due = datetime.strptime(item["마지막"], "%Y-%m-%d") + timedelta(days=item["주기"])
+        rem = (due - today).days
+        if rem <= 7:
+            st.warning(f"**{item['항목']}** 교체 필요 ({rem}일 전)")
