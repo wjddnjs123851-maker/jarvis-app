@@ -116,7 +116,7 @@ if menu == "투자 & 자산":
     with st.sidebar:
         st.subheader("데이터 입력")
         t_choice = st.selectbox("구분", ["지출", "수입"])
-        c_main = st.selectbox("대분류", ["식비", "생활용품", "주거/통신", "교통", "건강", "금융", "경조사", "자산이동"])
+c_main = st.selectbox("대분류", ["식비", "생활용품", "월 구독료", "주거/통신", "교통", "건강", "금융", "경조사", "자산이동"])
         if t_choice == "지출":
             st.markdown(f"""<div class="advice-box"><small>🛡️ 결제 가이드</small><br><b>{get_payment_advice(c_main)}</b></div>""", unsafe_allow_html=True)
         c_sub = st.text_input("소분류"); content = st.text_input("상세 내용")
