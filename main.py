@@ -77,22 +77,23 @@ def send_to_sheet(d_type, cat_main, cat_sub, content, value, method, corpus="Log
     try: return requests.post(API_URL, data=json.dumps(payload), timeout=5).status_code == 200
     except: return False
 
-# --- [3. UI 스타일 (흰색 배경 및 렌더링 오류 수정)] ---
-st.set_page_config(page_title="JARVIS v61.1", layout="wide")
+# --- [3. UI 스타일 (잔상 및 렌더링 오류 강제 제거 버전)] ---
+st.set_page_config(page_title="JARVIS v61.2", layout="wide")
 st.markdown(f"""
     <style>
-    /* 전체 폰트 설정 및 렌더링 최적화 (네모 박스 오류 방지) */
+    /* 1. 폰트 및 렌더링 최적화 */
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
     * {{
-        font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif !important;
+        font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif !important;
         text-rendering: optimizeLegibility;
         -webkit-font-smoothing: antialiased;
+        outline: none !important; /* 모든 아웃라인 강제 제거 */
     }}
 
     .stApp {{ background-color: {COLOR_BG}; color: {COLOR_TEXT}; }}
     h1, h2, h3, p, span, label, div {{ color: {COLOR_TEXT} !important; }}
     
-    /* 버튼: 하얀 배경에 검은 글씨 (정원 님 요청 반영) */
+    /* 2. 버튼 스타일: 흰색 배경 + 검은 글씨 (정원 님 요청) */
     .stButton>button {{
         background-color: #ffffff !important;
         color: #000000 !important;
@@ -100,18 +101,30 @@ st.markdown(f"""
         border-radius: 8px; font-weight: bold; width: 100%;
         height: 3em;
         transition: 0.2s;
+        box-shadow: none !important;
     }}
     .stButton>button:hover {{ border-color: #000000 !important; background-color: #f8f9fa !important; }}
     
-    /* 입력창 및 셀렉트박스 최적화 */
-    input, select, textarea, div[data-baseweb="select"] {{
+    /* 3. 셀렉트박스/입력창 내 '고스트 커서' 및 '네모 상자' 강제 제거 */
+    div[data-baseweb="select"] {{
+        background-color: #ffffff !important;
+        border: 1px solid #dee2e6 !important;
+    }}
+    
+    /* 텍스트 옆에 생기는 불필요한 가이드 라인(네모) 제거 */
+    div[data-baseweb="select"] * {{
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        user-select: none;
+        border: none !important;
+        box-shadow: none !important;
+    }}
+
+    /* 입력창 내부 텍스트 위치 보정 */
+    input, textarea {{
         background-color: #ffffff !important;
         color: {COLOR_TEXT} !important;
         border: 1px solid #dee2e6 !important;
-    }}
-    /* 드롭다운 내부 고스트 커서 제거 */
-    div[data-baseweb="select"] div {{
-        border: none !important;
     }}
 
     .net-box {{ background-color: #ffffff; padding: 25px; border-radius: 12px; border: 1px solid #dee2e6; border-left: 5px solid {COLOR_ASSET}; margin-bottom: 20px; }}
