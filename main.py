@@ -77,41 +77,51 @@ def send_to_sheet(d_type, cat_main, cat_sub, content, value, method, corpus="Log
     try: return requests.post(API_URL, data=json.dumps(payload), timeout=5).status_code == 200
     except: return False
 
-# --- [3. UI 스타일 (흰색 배경, 모든 버튼 흰색/검은글씨)] ---
-st.set_page_config(page_title="JARVIS v61.0", layout="wide")
+# --- [3. UI 스타일 (흰색 배경 및 렌더링 오류 수정)] ---
+st.set_page_config(page_title="JARVIS v61.1", layout="wide")
 st.markdown(f"""
     <style>
+    /* 전체 폰트 설정 및 렌더링 최적화 (네모 박스 오류 방지) */
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+    * {{
+        font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif !important;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+    }}
+
     .stApp {{ background-color: {COLOR_BG}; color: {COLOR_TEXT}; }}
     h1, h2, h3, p, span, label, div {{ color: {COLOR_TEXT} !important; }}
     
-    /* 버튼: 하얀 배경에 검은 글씨 */
+    /* 버튼: 하얀 배경에 검은 글씨 (정원 님 요청 반영) */
     .stButton>button {{
         background-color: #ffffff !important;
         color: #000000 !important;
         border: 1px solid #dee2e6 !important;
         border-radius: 8px; font-weight: bold; width: 100%;
-        transition: 0.3s;
+        height: 3em;
+        transition: 0.2s;
     }}
     .stButton>button:hover {{ border-color: #000000 !important; background-color: #f8f9fa !important; }}
     
-    /* 입력창 설정 */
+    /* 입력창 및 셀렉트박스 최적화 */
     input, select, textarea, div[data-baseweb="select"] {{
         background-color: #ffffff !important;
         color: {COLOR_TEXT} !important;
         border: 1px solid #dee2e6 !important;
+    }}
+    /* 드롭다운 내부 고스트 커서 제거 */
+    div[data-baseweb="select"] div {{
+        border: none !important;
     }}
 
     .net-box {{ background-color: #ffffff; padding: 25px; border-radius: 12px; border: 1px solid #dee2e6; border-left: 5px solid {COLOR_ASSET}; margin-bottom: 20px; }}
     .total-card {{ background-color: #ffffff; padding: 20px; border-radius: 10px; border: 1px solid #dee2e6; text-align: right; }}
     .advice-box {{ background-color: #f1f3f5; padding: 15px; border-radius: 8px; border-left: 5px solid {COLOR_ASSET}; margin-top: 10px; }}
     
-    /* 테이블 숫자 우측 정렬 */
     td {{ text-align: right !important; color: {COLOR_TEXT} !important; }}
     th {{ color: #495057 !important; text-align: center !important; }}
     </style>
 """, unsafe_allow_html=True)
-
-st.markdown(f"### {get_current_time()} | JARVIS Prime (White)")
 
 # --- [4. 메인 로직] ---
 with st.sidebar:
