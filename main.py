@@ -37,7 +37,7 @@ if 'daily_nutri' not in st.session_state:
     st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}
 
 # --- [2. UI 스타일 (네모 상자 및 에러 방지)] ---
-st.set_page_config(page_title="JARVIS v61.4", layout="wide")
+st.set_page_config(page_title="JARVIS v61.5", layout="wide")
 st.markdown(f"""
     <style>
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
@@ -47,9 +47,10 @@ st.markdown(f"""
         -webkit-font-smoothing: antialiased;
     }}
     /* 글자 옆 네모 상자(커서 잔상) 제거 */
-    input, select, .stSelectbox div {{
+    input, select, div[data-baseweb="select"] {{
         outline: none !important;
         box-shadow: none !important;
+        border: 1px solid #dee2e6 !important;
     }}
     .stApp {{ background-color: {COLOR_BG}; color: {COLOR_TEXT}; }}
     h1, h2, h3, p, span, label, div {{ color: {COLOR_TEXT} !important; }}
@@ -93,17 +94,15 @@ def get_current_time():
     return (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S')
 
 def load_sheet_data(gid):
-    # KeyError 해결: f-string 문법 수정
     ts = datetime.now().timestamp()
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}&t={ts}"
     try:
         df = pd.read_csv(url)
         return df.dropna(how='all')
-    except Exception as e:
-        st.error(f"데이터 로드 실패: {e}")
+    except:
         return pd.DataFrame()
-        def send_to_sheet(d_type, cat_main, cat_sub, content, value, method, corpus="Log"):
-    # 아래 줄부터 모든 내용은 반드시 들여쓰기가 되어 있어야 합니다.
+
+def send_to_sheet(d_type, cat_main, cat_sub, content, value, method, corpus="Log"):
     payload = {
         "time": get_current_time().split(' ')[0], "corpus": corpus, "type": d_type, 
         "cat_main": cat_main, "cat_sub": cat_sub, "item": content, 
@@ -138,6 +137,7 @@ if menu == "투자 & 자산":
         c_sub = st.text_input("소분류")
         content = st.text_input("상세 내용")
         a_input = st.number_input("금액(원)", min_value=0, step=1000)
+        # 하나카드(K-패스) 제거됨
         method_choice = st.selectbox("결제 수단", ["국민카드(WE:SH)", "현대카드(M경차)", "현대카드(이마트)", "우리카드(주거래)", "하나카드(MG+)", "현금", "계좌이체"])
         
         if st.button("시트 데이터 전송"):
