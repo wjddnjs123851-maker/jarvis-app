@@ -22,21 +22,15 @@ COLOR_DEBT = "#ff922b"
 
 # [정원 님 요청] 권장 칼로리 2900kcal 및 영양소 재설정
 # [정원 님 요청] 수분(ml) 항목 추가 및 권장량 설정
+# [정원 님 요청] 수분(ml) 포함 권장량 재설정
 RECOMMENDED = {
     "칼로리": 2900, "지방": 70, "콜레스테롤": 300, "나트륨": 2300, 
     "탄수화물": 350, "식이섬유": 30, "당": 50, "단백질": 170, "수분(ml)": 2000
 }
 
-if 'daily_nutri' not in st.session_state:
+# 세션 상태 초기화 (항상 최신 RECOMMENDED 키값을 반영하도록 수정)
+if 'daily_nutri' not in st.session_state or set(st.session_state.daily_nutri.keys()) != set(RECOMMENDED.keys()):
     st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}
-    st.session_state.maintenance = [
-        {"항목": "칫솔", "주기": 90, "마지막": "2025-11-20"},
-        {"항목": "샤워기필터", "주기": 60, "마지막": "2026-01-10"},
-        {"항목": "수건", "주기": 365, "마지막": "2025-06-01"},
-        {"항목": "면도날", "주기": 14, "마지막": "2026-02-10"}
-    ]
-
-# --- [2. UI 스타일 (화이트 테마)] ---
 st.set_page_config(page_title="JARVIS v63.2", layout="wide")
 st.markdown(f"""
     <style>
@@ -153,11 +147,19 @@ elif menu == "식단 & 건강":
 
     curr = st.session_state.daily_nutri
     # [정원 님 요청] 남은 양 계산 포함 데이터 구성
+    curr = st.session_state.daily_nutri
+    # 남은 양 계산 포함 데이터 구성 (KeyError 방지 로직 적용)
     analysis_data = []
     for k in RECOMMENDED.keys():
-        rem = max(0, RECOMMENDED[k] - curr[k])
-        analysis_data.append({"영양소": k, "현재 섭취": f"{{:.2f}}".format(curr[k]), "권장량": f"{{:.2f}}".format(RECOMMENDED[k]), "남은 양": f"{{:.2f}}".format(rem)})
-    
+        # curr에 키가 없을 경우 0.0으로 기본값 설정
+        current_val = curr.get(k, 0.0)
+        rem = max(0, RECOMMENDED[k] - current_val)
+        analysis_data.append({
+            "영양소": k, 
+            "현재 섭취": f"{current_val:.2f}", 
+            "권장량": f"{RECOMMENDED[k]:.2f}", 
+            "남은 양": f"{rem:.2f}"
+        })
     health_df = pd.DataFrame(analysis_data)
     health_df.index = health_df.index + 1 # 순번 1번부터
     
