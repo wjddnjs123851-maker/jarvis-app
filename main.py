@@ -140,11 +140,18 @@ elif menu == "식단 & 건강":
         with st.form("health_form"):
             f_in = {k: st.number_input(k, value=0.00, step=0.01, format="%.2f") for k in RECOMMENDED.keys()}
             if st.form_submit_button("영양 데이터 합산"):
-                for k in RECOMMENDED.keys(): st.session_state.daily_nutri[k] += f_in[k]
+                for k in RECOMMENDED.keys(): 
+                    st.session_state.daily_nutri[k] += f_in[k]
                 st.rerun()
+    
     curr = st.session_state.daily_nutri
-    st.table(pd.DataFrame([{"영양소": k, "현재": f"{{:.2f}}".format(curr[k]), "권장": RECOMMENDED[k]} for k in RECOMMENDED.keys()]))
-
+    # 데이터프레임 생성
+    analysis_df = pd.DataFrame([{"영양소": k, "현재": f"{curr[k]:.2f}", "권장": RECOMMENDED[k]} for k in RECOMMENDED.keys()])
+    
+    # [수정 포인트] 인덱스를 1부터 시작하도록 설정
+    analysis_df.index = analysis_df.index + 1 
+    
+    st.table(analysis_df)
 elif menu == "재고 & 교체관리":
     st.header("🏠 생활 시스템 관리")
     today = datetime.now()
