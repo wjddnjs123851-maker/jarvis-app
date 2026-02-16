@@ -187,72 +187,71 @@ elif menu == "식단 & 건강":
     st.table(health_df)
 
 # --- [모듈 3: 재고 & 교체관리] ---
-# --- [모듈 3: 재고 & 교체관리] ---
 elif menu == "재고 & 교체관리":
-    st.header("🏠 생활 시스템 및 물품 관리 (Direct Editor)")
+    st.header("🏠 생활 시스템 및 물품 관리")
     today = datetime.utcnow() + timedelta(hours=9)
     
-    # [1. 교체 주기 및 정기 일정 관리]
-    st.subheader("⚙️ 교체 및 정기 일정")
-    st.caption("표의 셀을 더블클릭하여 내용을 수정하거나, 하단의 [+] 버튼으로 행을 추가하세요.")
-    
-    # 데이터프레임 초기화
-    if 'maintenance_df' not in st.session_state:
-        st.session_state.maintenance_df = pd.DataFrame(st.session_state.maintenance)
-
-    # 엑셀식 에디터 적용
-    edited_m_df = st.data_editor(
-        st.session_state.maintenance_df,
-        num_rows="dynamic", # 행 추가/삭제 가능
-        use_container_width=True,
-        key="m_editor"
-    )
-    
-    # 변경사항 저장 버튼
-    if st.button("💾 일정 변경사항 저장"):
-        st.session_state.maintenance = edited_m_df.to_dict('records')
-        st.session_state.maintenance_df = edited_m_df
-        st.success("일정 수정사항이 반영되었습니다."); st.rerun()
+    # [1. 수행 필요 알림 - 최상단 배치]
+    st.subheader("🚨 수행 필요 알림")
+    if 'maintenance' in st.session_state:
+        alert_found = False
+        for item in st.session_state.maintenance:
+            try:
+                due = datetime.strptime(str(item["마지막"]), "%Y-%m-%d") + timedelta(days=int(item["주기"]))
+                rem = (due - today).days
+                if rem <= 7:
+                    st.warning(f"**{item['항목']}**: {rem}일 남음 ({due.strftime('%Y-%m-%d')})")
+                    alert_found = True
+            except: continue
+        if not alert_found:
+            st.info("현재 임박한 일정이나 교체 항목이 없습니다.")
 
     st.divider()
 
-    # [2. 식재료 & 의약품 유통기한 관리]
-    st.subheader("📦 식재료 & 의약품 유통기한 (상함 방지)")
-    st.info("기한/상태 열을 더블클릭해서 수정하세요. 행 번호를 선택하고 Del키를 누르면 삭제됩니다.")
+    # [2. 교체 주기 및 정기 일정 관리]
+    st.subheader("⚙️ 교체 및 정기 일정")
+    if 'maintenance_df' not in st.session_state:
+        st.session_state.maintenance_df = pd.DataFrame(st.session_state.maintenance)
+    
+    edited_m_df = st.data_editor(st.session_state.maintenance_df, num_rows="dynamic", use_container_width=True, key="m_editor_v2")
+    if st.button("💾 일정 변경사항 저장"):
+        st.session_state.maintenance = edited_m_df.to_dict('records')
+        st.session_state.maintenance_df = edited_m_df
+        st.success("일정이 저장되었습니다."); st.rerun()
 
-    if 'inv_df_state' not in st.session_state:
-        # 기존 데이터를 데이터프레임으로 변환
-        if 'custom_inventory' not in st.session_state:
-            st.session_state.custom_inventory = [
-                {"구분": "식재료", "품목": "라면", "기한/상태": "5봉지 (26-08-01)"},
-                {"구분": "식재료", "품목": "닭다리살", "기한/상태": "500g (냉동)"},
-                {"구분": "의약품", "품목": "타이레놀", "기한/상태": "8정 (27-12-31)"}
-            ]
-        st.session_state.inv_df_state = pd.DataFrame(st.session_state.custom_inventory)
+    st.divider()
 
-    # 엑셀식 에디터 적용
-    edited_inv_df = st.data_editor(
-        st.session_state.inv_df_state,
-        num_rows="dynamic", # 행 추가/삭제 가능
-        use_container_width=True,
-        column_config={
-            "구분": st.column_config.SelectboxColumn("구분", options=["식재료", "의약품", "기타"], required=True),
-        },
-        key="inv_editor"
-    )
+    # [3. 식재료 유통기한 관리]
+    st.subheader("🍎 식재료 유통기한 관리")
+    st.caption("사놓고 잊어서 상해 버리는 일이 없도록 관리하세요.")
+    
+    if 'food_df_state' not in st.session_state:
+        initial_food = [
+            {"품목": "라면", "수량": "5봉지", "기한": "2026-08-01"},
+            {"품목": "닭다리살", "수량": "500g", "기한": "냉동보관"},
+            {"품목": "감자", "수량": "3개", "기한": "빨리먹기"}
+        ]
+        st.session_state.food_df_state = pd.DataFrame(initial_food)
 
-    if st.button("💾 재고 변경사항 저장"):
-        st.session_state.custom_inventory = edited_inv_df.to_dict('records')
-        st.session_state.inv_df_state = edited_inv_df
-        st.success("재고 리스트가 업데이트되었습니다."); st.rerun()
+    edited_food_df = st.data_editor(st.session_state.food_df_state, num_rows="dynamic", use_container_width=True, key="food_editor")
+    if st.button("💾 식재료 변경사항 저장"):
+        st.session_state.food_df_state = edited_food_df
+        st.success("식재료 리스트가 저장되었습니다."); st.rerun()
 
-    # [3. 통합 알림 섹션]
-    st.subheader("🚨 수행 필요 알림")
-    for index, row in edited_m_df.iterrows():
-        try:
-            due = datetime.strptime(str(row["마지막"]), "%Y-%m-%d") + timedelta(days=int(row["주기"]))
-            rem = (due - today).days
-            if rem <= 7:
-                st.warning(f"**{row['항목']}**: {rem}일 남음 ({due.strftime('%Y-%m-%d')})")
-        except:
-            continue
+    st.divider()
+
+    # [4. 의약품 유효기한 관리]
+    st.subheader("💊 의약품 유효기한 관리")
+    st.caption("비상약의 유효기한을 정기적으로 확인하세요.")
+
+    if 'med_df_state' not in st.session_state:
+        initial_med = [
+            {"품목": "타이레놀", "수량": "8정", "기한": "2027-12-31"},
+            {"품목": "인공눈물", "수량": "1박스", "기한": "2026-05-10"}
+        ]
+        st.session_state.med_df_state = pd.DataFrame(initial_med)
+
+    edited_med_df = st.data_editor(st.session_state.med_df_state, num_rows="dynamic", use_container_width=True, key="med_editor")
+    if st.button("💾 의약품 변경사항 저장"):
+        st.session_state.med_df_state = edited_med_df
+        st.success("의약품 리스트가 저장되었습니다."); st.rerun()
