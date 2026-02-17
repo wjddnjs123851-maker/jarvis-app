@@ -32,12 +32,12 @@ def to_numeric(val):
     except: return 0
 
 def extract_quantity(text):
-    """비고란의 '보유량 0.001814개'에서 숫자만 추출"""
+    """비고란의 '보유량 0.001814개'에서 숫자 추출"""
     if pd.isna(text): return None
     match = re.search(r"([0-9]*\.[0-9]+|[0-9]+)", str(text))
     return float(match.group(1)) if match else None
 
-@st.cache_data(ttl=15) # 시세는 15초마다 자동 갱신
+@st.cache_data(ttl=15)
 def get_upbit_price(ticker):
     try:
         url = f"https://api.upbit.com/v1/ticker?markets=KRW-{ticker}"
@@ -54,36 +54,61 @@ def load_sheet_data(gid):
         return df.dropna(how='all')
     except: return pd.DataFrame()
 
-# --- [3. UI 설정 및 메인 로직] ---
-st.set_page_config(page_title="JARVIS Prime v65.8", layout="wide")
+def send_to_sheet(payload):
+    try:
+        res = requests.post(API_URL, data=json.dumps(payload), timeout=10)
+        return res.status_code == 200
+    except: return False
+
+# --- [3. UI 설정] ---
+st.set_page_config(page_title="JARVIS Prime v65.9", layout="wide")
 now = datetime.utcnow() + timedelta(hours=9)
 
 st.markdown(f"""<style>thead tr th:first-child, tbody th {{ display:none; }} .status-card {{ background-color: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6; border-left: 5px solid {COLOR_PRIMARY}; margin-bottom: 20px; }}</style>""", unsafe_allow_html=True)
 
+# --- [4. 사이드바 메뉴] ---
 with st.sidebar:
     st.title("자비스 제어 센터")
     menu = st.radio("메뉴 선택", ["자산 관리", "식단 및 건강", "재고 관리"])
+    st.divider()
 
+# --- [5. 모듈별 로직] ---
+
+# 1. 자산 관리 (입력 탭 복구 완료)
 if menu == "자산 관리":
     st.subheader("실시간 통합 자산 현황")
-    df_assets = load_sheet_data(GID_MAP["Assets"])
     
+    # [사이드바 입력 폼 복구]
+    with st.sidebar:
+        st.markdown("**💰 지출/수입 기록**")
+        with st.form("asset_form"):
+            sel_date = st.date_input("날짜", value=now.date())
+            sel_hour = st.slider("시간(시)", 0, 23, now.hour)
+            t_choice = st.selectbox("구분", ["지출", "수입"])
+            c_main = st.selectbox("분류", ["식비", "생활용품", "사회적 관계", "고정지출", "주거/통신", "교통", "건강", "금융", "자산이동"])
+            content = st.text_input("상세 내용")
+            a_input = st.number_input("금액", min_value=0, step=1000)
+            method = st.selectbox("결제수단", ["국민카드", "현대카드", "우리카드", "하나카드", "현금/이체"])
+            if st.form_submit_button("전송"):
+                payload = {
+                    "time": f"{sel_date} {sel_hour:02d}시", "corpus": "Log", "type": t_choice, 
+                    "cat_main": c_main, "cat_sub": "-", "item": content, "value": a_input, "method": method, "user": "정원"
+                }
+                if a_input > 0 and send_to_sheet(payload):
+                    st.success("기록 성공"); st.cache_data.clear(); st.rerun()
+
+    # [자산 리스트 및 실시간 연동]
+    df_assets = load_sheet_data(GID_MAP["Assets"])
     if not df_assets.empty:
-        # 시트의 열 이름을 '항목', '금액', '비고'로 강제 지정
         df_assets.columns = ["항목", "금액", "비고"] + list(df_assets.columns[3:])
-        
         realtime_assets = []
         total_val = 0
         
         for _, row in df_assets.iterrows():
-            item = str(row["항목"])
-            base_val = to_numeric(row["금액"]) # 시트에 적힌 고정 금액
-            note = str(row["비고"])
-            
-            # 비고란에서 숫자(수량) 추출
+            item, base_val, note = str(row["항목"]), to_numeric(row["금액"]), str(row["비고"])
             qty = extract_quantity(note)
             
-            # 코인 실시간 연동 (항목 이름에 BTC나 이더리움이 포함된 경우)
+            # 코인 실시간 연동
             coin_match = re.search(r'(비트코인|이더리움|BTC|ETH)', item.upper())
             if coin_match and qty:
                 symbol = "BTC" if "비트코인" in item or "BTC" in item.upper() else "ETH"
@@ -94,14 +119,11 @@ if menu == "자산 관리":
                     total_val += current_eval
                     continue
             
-            # 일반 자산 (수량이 없거나 코인이 아닌 경우)
             realtime_assets.append({"항목": item, "금액": base_val})
             total_val += base_val
 
-        # 상단 대시보드
         st.markdown(f'<div class="status-card"><small>실시간 합산 순자산</small><br><span style="font-size:2.5em; font-weight:bold;">{total_val:,.0f} 원</span></div>', unsafe_allow_html=True)
         
-        # 상세 내역 표시
         df_final = pd.DataFrame(realtime_assets)
         c1, c2 = st.columns(2)
         with c1:
@@ -111,7 +133,7 @@ if menu == "자산 관리":
             st.markdown("**부채 현황**")
             st.table(df_final[df_final["금액"] < 0].assign(금액=lambda x: x["금액"].apply(lambda v: format_krw(abs(v)))))
 
-# (식단 및 재고 관리 코드는 기존과 동일하게 유지됩니다)
+# [나머지 식단 및 재고 관리 로직 생략 - 기존 유지]
 # 2. 식단 및 건강 모듈
 elif menu == "식단 및 건강":
     st.subheader(f"오늘의 영양 분석 (목표: {RECOMMENDED['칼로리']} kcal)")
