@@ -65,18 +65,46 @@ def infer_shelf_life(item_name):
 
 # --- [3. 시스템 초기화 및 세션 관리] ---
 st.set_page_config(page_title="JARVIS Prime v64.4", layout="wide")
+# --- 68행 시작 ---
 now = datetime.utcnow() + timedelta(hours=9)
 
-for key, default in [('food_df_state', pd.DataFrame(columns=["품목", "수량", "기한"])), 
-                     ('daily_nutri', {k: 0.0 for k in RECOMMENDED.keys()}), 
-                     ('med_df_state', pd.DataFrame(columns=["품목", "수량", "기한"]))]:
-    if key not in st.session_state: st.session_state[key] = default
+# [데이터 복구 엔진] 앱 재시작 시 시트 데이터를 세션에 주입
+def sync_from_sheet(gid, key_type):
+    try:
+        df_raw = load_sheet_data(gid)
+        if not df_raw.empty:
+            filtered = df_raw[df_raw.iloc[:, 2] == key_type].copy()
+            if not filtered.empty:
+                parsed = []
+                for _, row in filtered.iterrows():
+                    val_parts = str(row.iloc[7]).split('|')
+                    qty = val_parts[0]
+                    due = val_parts[1].replace("기한:", "") if len(val_parts) > 1 else "-"
+                    parsed.append({"품목": row.iloc[5], "수량": qty, "기한": due})
+                return pd.DataFrame(parsed).drop_duplicates(['품목'], keep='last')
+    except: pass
+    return pd.DataFrame(columns=["품목", "수량", "기한"])
 
-if not st.session_state.food_df_state.empty:
-    df = st.session_state.food_df_state
+# 세션 상태 초기화 (시트에서 자동 복구 시도)
+if 'food_df_state' not in st.session_state:
+    st.session_state.food_df_state = sync_from_sheet(GID_MAP["Log"], "재고")
+
+if 'med_df_state' not in st.session_state:
+    st.session_state.med_df_state = sync_from_sheet(GID_MAP["Log"], "의약품")
+
+if 'daily_nutri' not in st.session_state:
+    st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}
+
+# [지능형 소비기한 자동 계산 엔진]
+def apply_auto_shelf_life(df):
     for idx, row in df.iterrows():
         if row['품목'] and (pd.isna(row['기한']) or row['기한'] in ["", "-", "None"]):
-            df.at[idx, '기한'] = (now + timedelta(days=infer_shelf_life(row['품목']))).strftime('%Y-%m-%d')
+            days = infer_shelf_life(row['품목'])
+            df.at[idx, '기한'] = (now + timedelta(days=days)).strftime('%Y-%m-%d')
+    return df
+
+if not st.session_state.food_df_state.empty:
+    st.session_state.food_df_state = apply_auto_shelf_life(st.session_state.food_df_state)
 
 # --- [4. UI 스타일] ---
 st.markdown(f"""
@@ -91,11 +119,13 @@ st.markdown(f"""
 t_col1, t_col2 = st.columns([3, 1])
 with t_col1: st.markdown(f"### {now.strftime('%Y-%m-%d %H:%M:%S')} | JARVIS Prime")
 with t_col2: 
-    if st.button("💾 전체 백업", use_container_width=True): st.info("백업 가동")
+    if st.button("💾 전체 백업", use_container_width=True, key="main_backup_final"):
+        st.info("시트로 백업이 진행됩니다.")
 
 with st.sidebar:
     st.title("JARVIS CONTROL")
     menu = st.radio("SELECT MENU", ["투자 & 자산", "식단 & 건강", "재고 & 교체관리"])
+    st.divider()
 
 if menu == "투자 & 자산":
     st.header("📈 종합 자산 대시보드")
@@ -129,7 +159,7 @@ elif menu == "식단 & 건강":
             val = curr.get(name, 0.0)
             st.write(f"**{name}**: {val:.1f} / {goal:.1f}"); st.progress(min(1.0, val / goal) if goal > 0 else 0.0)
     st.divider()
-    m = st.columns(4) # 잔여량 Metric
+    m = st.columns(4)
     m[0].metric("칼로리 잔여", f"{max(0, RECOMMENDED['칼로리'] - curr['칼로리']):.0f} kcal")
     m[1].metric("단백질 잔여", f"{max(0, RECOMMENDED['단백질'] - curr['단백질']):.1f} g")
     m[2].metric("탄수화물 잔여", f"{max(0, RECOMMENDED['탄수화물'] - curr['탄수화물']):.1f} g")
@@ -144,41 +174,20 @@ elif menu == "식단 & 건강":
 
 elif menu == "재고 & 교체관리":
     st.header("🏠 스마트 재고 시스템")
-    
-    # 알림 섹션: 기한 임박 물품 체크
-    alert_found = False
-    if not st.session_state.food_df_state.empty:
-        for _, row in st.session_state.food_df_state.iterrows():
-            try:
-                due = datetime.strptime(row['기한'], "%Y-%m-%d")
-                rem = (due - now).days
-                if rem <= 7:
-                    st.warning(f"🚨 **{row['품목']}** 소비기한 임박: {rem}일 남음")
-                    alert_found = True
-            except: continue
-    if not alert_found: st.info("✅ 현재 관리 대상 중 기한 임박 항목이 없습니다.")
-    st.divider()
-
     t1, t2 = st.tabs(["🍎 식재료", "💊 의약품"])
-    
     with t1:
-        # Key를 부여하여 중복 ID 에러 방지
-        st.session_state.food_df_state = st.data_editor(
-            st.session_state.food_df_state, 
-            num_rows="dynamic", 
-            use_container_width=True,
-            key="food_editor_v1" 
-        )
-        if st.button("💾 식재료 데이터 동기화", key="btn_food_sync"):
-            st.success("식재료 목록이 세션에 저장되었습니다.")
-
+        st.session_state.food_df_state = st.data_editor(st.session_state.food_df_state, num_rows="dynamic", use_container_width=True, key="food_v64_final")
+        if st.button("💾 식재료 시트 백업", key="save_food_final"):
+            success = 0
+            for _, row in st.session_state.food_df_state.iterrows():
+                if send_to_sheet(now.date(), now.hour, "재고", "식재료", row['품목'], 0, f"{row['수량']}|기한:{row['기한']}", corpus="Log"):
+                    success += 1
+            st.success(f"{success}개 품목 동기화 완료")
     with t2:
-        # 의약품 에디터에도 고유 Key 부여
-        st.session_state.med_df_state = st.data_editor(
-            st.session_state.med_df_state, 
-            num_rows="dynamic", 
-            use_container_width=True,
-            key="med_editor_v1"
-        )
-        if st.button("💾 의약품 데이터 저장", key="btn_med_sync"):
-            st.success("의약품 목록이 업데이트되었습니다.")
+        st.session_state.med_df_state = st.data_editor(st.session_state.med_df_state, num_rows="dynamic", use_container_width=True, key="med_v64_final")
+        if st.button("💾 의약품 시트 백업", key="save_med_final"):
+            success = 0
+            for _, row in st.session_state.med_df_state.iterrows():
+                if send_to_sheet(now.date(), now.hour, "의약품", "보건", row['품목'], 0, f"{row['수량']}|기한:{row['기한']}", corpus="Log"):
+                    success += 1
+            st.success(f"{success}개 품목 동기화 완료")
