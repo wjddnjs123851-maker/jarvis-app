@@ -55,27 +55,34 @@ def send_to_sheet(d_date, d_hour, d_type, cat_main, content, value, method, corp
         return res.status_code == 200
     except: return False
 
-# [지능형 추론] 이미지 데이터 기반 식재료 기한 로직 고도화
+# --- 60행 부근 ---
 def infer_shelf_life(item_name):
-    # 엽채류/신선식품 (이미지의 계란, 요거트, 채소류 등)
-    if any(k in item_name for k in ["계란", "요거트", "우유", "케일", "루꼴라", "샐러드", "애호박"]):
-        return 7
-    # 뿌리채소 및 오래가는 신선식품 (이미지의 감자, 당근, 양파 등)
-    elif any(k in item_name for k in ["감자", "당근", "양파", "파스닙", "비트"]):
-        return 21
-    # 육류/생선 (이미지의 삼겹살, 목살, 닭다리살, 삼치 등)
-    elif any(k in item_name for k in ["삼겹살", "목살", "닭", "고기", "생선", "해산물"]):
+    """
+    데이터를 저장하지 않고, 입력된 품목명에 따라 식약처 기준 보관 일수만 반환하는 엔진입니다.
+    """
+    # 1. 초신선/수분 많은 채소 (냉장 5일)
+    if any(k in item_name for k in ["오이", "버섯", "콩나물", "샐러드", "상추"]):
         return 5
-    # 냉동식품 (이미지의 냉동 베리, 우동사리, 사골육수 등)
-    elif any(k in item_name for k in ["냉동", "우동사리", "만두"]):
+    # 2. 일반 신선식품 (냉장 7일)
+    elif any(k in item_name for k in ["애호박", "계란", "요거트", "파프리카"]):
+        return 7
+    # 3. 육류/생선 (냉장 5일)
+    elif any(k in item_name for k in ["삼겹살", "목살", "닭", "소고기", "생선"]):
+        return 5
+    # 4. 가공식품/유제품 (냉장 14일)
+    elif any(k in item_name for k in ["두부", "치즈", "우유", "소시지"]):
+        return 14
+    # 5. 뿌리채소 (냉장 21일)
+    elif any(k in item_name for k in ["감자", "당근", "양파", "마늘"]):
+        return 21
+    # 6. 냉동식품 (180일)
+    elif any(k in item_name for k in ["냉동", "새우살", "우동사리"]):
         return 180
-    # 실온/가공/양념 (이미지의 햇반, 라면, 토마토 페이스트, 고형 카레 등)
-    elif any(k in item_name for k in ["햇반", "라면", "캔", "페이스트", "카레", "초콜릿", "미역"]):
+    # 7. 실온/가공 (365일)
+    elif any(k in item_name for k in ["라면", "햇반", "캔", "카레", "미역"]):
         return 365
-    # 의약품
-    elif any(k in item_name for k in ["약", "정", "제", "눈물", "시럽"]):
-        return 730
-    return 14
+    return 10  # 분류되지 않은 항목 기본값
+# --- 85행 끝 ---
 
 # --- [3. UI 스타일 및 세션 설정] ---
 # --- 81행 시작 ---
@@ -86,59 +93,44 @@ now = datetime.utcnow() + timedelta(hours=9)
 
 # --- 84행 시작 ---
 # 세션 초기화 로직 (시트 동기화 + 정원 님 이미지 데이터 전체 반영)
+# --- 93행 시작 ---
+# [JARVIS 시스템 변수 및 초기화 로직]
+now = datetime.utcnow() + timedelta(hours=9)
+
 if 'food_df_state' not in st.session_state:
-    try:
-        # 1. 시트에서 기존 재고 데이터를 불러오기 시도
-        df_raw = load_sheet_data(GID_MAP["Log"])
-        food_from_sheet = df_raw[df_raw.iloc[:, 2] == "재고"].copy()
-        
-        if not food_from_sheet.empty:
-            parsed_data = []
-            for _, row in food_from_sheet.iterrows():
-                val_parts = str(row.iloc[7]).split('|')
-                qty = val_parts[0]
-                due = val_parts[1].replace("기한:", "") if len(val_parts) > 1 else "-"
-                parsed_data.append({"품목": row.iloc[5], "수량": qty, "기한": due})
-            st.session_state.food_df_state = pd.DataFrame(parsed_data)
-        else:
-            raise Exception("No data in sheet")
-            
-    except Exception:
-        # 2. 시트에 데이터가 없거나 에러 시, 이미지의 31종 전체 데이터로 초기화
-        initial_food = [
-            {"품목": "계란", "수량": "15알", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
-            {"품목": "그릭 요거트", "수량": "400g * 2개", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
-            {"품목": "우유(멸균)", "수량": "1L * 5개", "기한": (now + timedelta(days=14)).strftime('%Y-%m-%d')},
-            {"품목": "삼겹살", "수량": "600g", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
-            {"품목": "목살", "수량": "300g", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
-            {"품목": "닭다리살", "수량": "1팩", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
-            {"품목": "슬라이스 치즈", "수량": "다량", "기한": (now + timedelta(days=30)).strftime('%Y-%m-%d')},
-            {"품목": "동치미/각종 김치", "수량": "적정량", "기한": (now + timedelta(days=60)).strftime('%Y-%m-%d')},
-            {"품목": "감자", "수량": "3개", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
-            {"품목": "당근", "수량": "3개", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
-            {"품목": "애호박", "수량": "1개", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
-            {"품목": "양파", "수량": "2개(대)", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
-            {"품목": "사골육수", "수량": "2팩", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
-            {"품목": "냉동 생선(삼치)", "수량": "4마리", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
-            {"품목": "냉동 베리 믹스", "수량": "2kg", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
-            {"품목": "우동사리", "수량": "200g * 3봉", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
-            {"품목": "햇반", "수량": "1개", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-            {"품목": "쌀/잡곡", "수량": "다량", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-            {"품목": "소면", "수량": "300g", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-            {"품목": "파스타면", "수량": "다량", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-            {"품목": "통조림 햄(뚝심 등)", "수량": "2개", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-            {"품목": "토마토 페이스트", "수량": "170g * 10캔", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-            {"품목": "단백질 쉐이크", "수량": "8팩", "기한": (now + timedelta(days=90)).strftime('%Y-%m-%d')},
-            {"품목": "봉지 라면류", "수량": "9봉", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-            {"품목": "미소된장/마요네즈", "수량": "각 1개", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
-            {"품목": "라도유(볶음용)", "수량": "1개", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-            {"품목": "고형 카레(S&B)", "수량": "1박스", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-            {"품목": "땅콩버터", "수량": "1개", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
-            {"품목": "아사이베리 분말", "수량": "각 1개", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
-            {"품목": "다크 초콜릿", "수량": "100g", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
-            {"품목": "미역", "수량": "50g", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')}
-        ]
-        st.session_state.food_df_state = pd.DataFrame(initial_food)
+    # 최초 실행 시 데이터는 비워둡니다. 정원 님이 앱에서 직접 입력하신 데이터만 관리합니다.
+    st.session_state.food_df_state = pd.DataFrame(columns=["품목", "수량", "기한"])
+
+
+# [지능형 소비기한 자동 채우기 함수]
+def apply_auto_shelf_life(df):
+    """
+    정원 님이 앱에서 품목을 입력하면, 기한이 비어있는 경우에만 
+    식약처 가이드 기반의 소비기한을 자동으로 계산하여 입력합니다.
+    """
+    for idx, row in df.iterrows():
+        # 품목명은 있고 기한이 아직 입력되지 않은 행(또는 '-')을 찾아 처리합니다.
+        if row['품목'] and (pd.isna(row['기한']) or row['기한'] == "-" or row['기한'] == ""):
+            days = infer_shelf_life(row['품목'])
+            df.at[idx, '기한'] = (now + timedelta(days=days)).strftime('%Y-%m-%d')
+    return df
+
+
+# 입력된 데이터프레임에 자동 계산 로직을 실시간 적용합니다.
+if not st.session_state.food_df_state.empty:
+    st.session_state.food_df_state = apply_auto_shelf_life(st.session_state.food_df_state)
+
+
+
+
+
+
+
+
+
+
+
+# --- 148행 끝 (기존 주석 위치와 연결) ---
 # --- 125행 끝 ---
     st.session_state.food_df_state = pd.DataFrame(initial_food)
 # --- 여기까지 109행 (이후 코드는 파트 2 시작점과 연결됨) ---
