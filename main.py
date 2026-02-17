@@ -74,6 +74,8 @@ with st.sidebar:
 
 if menu == "자산 관리":
     st.subheader("실시간 통합 자산 및 가계부")
+    
+    # 1. 입력 폼 (기존 동일)
     with st.sidebar:
         st.markdown("**💰 지출/수입 기록**")
         with st.form("asset_form"):
@@ -83,69 +85,74 @@ if menu == "자산 관리":
             c_main = st.selectbox("분류", ["식비", "생활용품", "사회적 관계", "고정지출", "주거/통신", "교통", "건강", "금융", "자산이동"])
             content = st.text_input("상세 내용")
             a_input = st.number_input("금액", min_value=0, step=1000)
-            # 시트 수식과 일치하도록 결제수단 명칭 고정
             method = st.selectbox("결제수단", ["국민카드(WE:SH)", "하나카드(MG+)", "우리카드(주거래)", "현대카드(이마트)", "현금", "계좌이체"])
             if st.form_submit_button("전송"):
                 payload = {"time": f"{sel_date} {sel_hour:02d}시", "corpus": "log", "type": t_choice, "cat_main": c_main, "item": content, "value": a_input, "method": method, "user": "정원"}
                 if a_input > 0 and send_to_sheet(payload):
                     st.success("데이터 기록 성공"); st.cache_data.clear(); st.rerun()
 
+    # 2. 데이터 로드 및 강제 보정
     df_assets = load_sheet_data(GID_MAP["assets"])
+    
     if not df_assets.empty:
-        # 정원 님의 시트 구조(A:항목, B:금액, C:비고) 강제 매핑
-        df_assets = df_assets.iloc[:, :3] 
-        df_assets.columns = ["항목", "금액", "비고"]
+        # 데이터가 있는 행부터 읽기 위해 불필요한 헤더 정리
+        # 정원 님 시트 구조: A열(항목), B열(금액), C열(비고)
+        realtime_list = []
+        total_val = 0
         
-        total_val, realtime_list = 0, []
-        
-        for _, row in df_assets.iterrows():
-            item = str(row["항목"])
-            # '금액' 열에서 숫자만 추출 (수식 결과값 포함)
-            base_val = to_numeric(row["금액"])
-            note = str(row["비고"])
-            qty = extract_quantity(note)
-            
-            # 1. 코인 실시간 시세 처리
-            coin_match = re.search(r'(BTC|ETH)', item.upper())
-            if coin_match and qty:
-                symbol = coin_match.group(1)
-                price = get_upbit_price(symbol)
-                if price:
-                    eval_val = price * qty
-                    realtime_list.append({"항목": f"{item} (실시간)", "금액": eval_val})
-                    total_val += eval_val
+        # DataFrame의 실제 데이터를 순회 (컬럼명 무시하고 인덱스로 접근)
+        for i in range(len(df_assets)):
+            try:
+                # 첫 번째 열(항목)과 두 번째 열(금액)을 직접 추출
+                item = str(df_assets.iloc[i, 0])
+                raw_val = df_assets.iloc[i, 1]
+                note = str(df_assets.iloc[i, 2]) if len(df_assets.columns) > 2 else ""
+                
+                # 금액 숫자로 변환
+                val = to_numeric(raw_val)
+                
+                # '항목'이 비어있으면 건너뜀
+                if not item or item == "nan" or item == "항목":
                     continue
-            
-            # 2. 일반 자산 및 부채 처리
-            realtime_list.append({"항목": item, "금액": base_val})
-            total_val += base_val
+                
+                # 코인 실시간 시세 처리
+                qty = extract_quantity(note)
+                coin_match = re.search(r'(BTC|ETH)', item.upper())
+                if coin_match and qty:
+                    symbol = coin_match.group(1)
+                    price = get_upbit_price(symbol)
+                    if price:
+                        val = price * qty
+                        item = f"{item} (실시간)"
+                
+                realtime_list.append({"항목": item, "금액": val})
+                total_val += val
+            except Exception as e:
+                continue
 
-        # 상단 대시보드
+        # 3. 화면 출력
         st.markdown(f'<div class="status-card"><small>현재 실시간 통합 순자산</small><br><span style="font-size:2.5em; font-weight:bold;">{total_val:,.0f} 원</span></div>', unsafe_allow_html=True)
 
-        # 자산/부채 분리 대시보드
         df_final = pd.DataFrame(realtime_list)
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown("#### 🟢 보유 자산")
-            # 0보다 큰 금액만 필터링
+            # 1원이라도 있는 자산 출력
             df_pos = df_final[df_final["금액"] > 0].copy()
             if not df_pos.empty:
                 st.table(df_pos.assign(금액=lambda x: x["금액"].apply(format_krw)))
             else:
-                st.info("표시할 자산 내역이 없습니다.")
+                st.info("표시할 자산이 없습니다.")
 
         with col2:
             st.markdown("#### 🔴 부채 및 카드값")
-            # 0보다 작은 금액만 필터링 (카드값 등)
+            # 0보다 작은 모든 항목 출력 (카드값 등)
             df_neg = df_final[df_final["금액"] < 0].copy()
             if not df_neg.empty:
-                # 가독성을 위해 절대값으로 변환하여 출력
                 st.table(df_neg.assign(금액=lambda x: x["금액"].apply(lambda v: format_krw(abs(v)))))
             else:
-                st.warning("부채 내역이 없습니다. (시트의 마이너스(-) 금액 확인 필요)")
-
+                st.warning("부채 내역이 없습니다. (시트의 B열 금액이 마이너스인지 확인하세요)")
 elif menu == "식단 및 건강":
     # (v66.1과 동일한 식단 코드)
     st.subheader(f"오늘의 영양 분석 (목표: {RECOMMENDED['칼로리']} kcal)")
