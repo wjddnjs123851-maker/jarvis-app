@@ -144,8 +144,41 @@ elif menu == "식단 & 건강":
 
 elif menu == "재고 & 교체관리":
     st.header("🏠 스마트 재고 시스템")
+    
+    # 알림 섹션: 기한 임박 물품 체크
+    alert_found = False
+    if not st.session_state.food_df_state.empty:
+        for _, row in st.session_state.food_df_state.iterrows():
+            try:
+                due = datetime.strptime(row['기한'], "%Y-%m-%d")
+                rem = (due - now).days
+                if rem <= 7:
+                    st.warning(f"🚨 **{row['품목']}** 소비기한 임박: {rem}일 남음")
+                    alert_found = True
+            except: continue
+    if not alert_found: st.info("✅ 현재 관리 대상 중 기한 임박 항목이 없습니다.")
+    st.divider()
+
     t1, t2 = st.tabs(["🍎 식재료", "💊 의약품"])
+    
     with t1:
-        st.session_state.food_df_state = st.data_editor(st.session_state.food_df_state, num_rows="dynamic", use_container_width=True)
-        if st.button("💾 시트 백업"): st.success("동기화 완료")
-    with t2: st.session_state.med_df_state = st.data_editor(st.session_state.med_df_state, num_rows="dynamic", use_container_width=True)
+        # Key를 부여하여 중복 ID 에러 방지
+        st.session_state.food_df_state = st.data_editor(
+            st.session_state.food_df_state, 
+            num_rows="dynamic", 
+            use_container_width=True,
+            key="food_editor_v1" 
+        )
+        if st.button("💾 식재료 데이터 동기화", key="btn_food_sync"):
+            st.success("식재료 목록이 세션에 저장되었습니다.")
+
+    with t2:
+        # 의약품 에디터에도 고유 Key 부여
+        st.session_state.med_df_state = st.data_editor(
+            st.session_state.med_df_state, 
+            num_rows="dynamic", 
+            use_container_width=True,
+            key="med_editor_v1"
+        )
+        if st.button("💾 의약품 데이터 저장", key="btn_med_sync"):
+            st.success("의약품 목록이 업데이트되었습니다.")
