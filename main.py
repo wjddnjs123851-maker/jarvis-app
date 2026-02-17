@@ -16,7 +16,6 @@ GID_MAP = {
 API_URL = "https://script.google.com/macros/s/AKfycbxmlmMqenbvhLiLbUmI2GEd1sUMpM-NIUytaZ6jGjSL_hZ_4bk8rnDT1Td3wxbdJVBA/exec"
 COLOR_PRIMARY = "#4dabf7"
 
-# 정원 님 신체 조건(185cm) 반영 영양 목표
 RECOMMENDED = {
     "칼로리": 2200, "단백질": 180, "탄수화물": 280, "지방": 85,
     "식이섬유": 30, "나트륨": 2300, "당류": 50, "콜레스테롤": 300, "수분(ml)": 2000     
@@ -59,8 +58,8 @@ def send_to_sheet(payload):
         return res.status_code == 200
     except: return False
 
-# --- [3. UI 및 메인 로직] ---
-st.set_page_config(page_title="JARVIS Prime v66.1", layout="wide")
+# --- [3. UI 설정] ---
+st.set_page_config(page_title="JARVIS Prime v66.2", layout="wide")
 now = datetime.utcnow() + timedelta(hours=9)
 
 st.markdown(f"""<style>thead tr th:first-child, tbody th {{ display:none; }} .status-card {{ background-color: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6; border-left: 5px solid {COLOR_PRIMARY}; margin-bottom: 20px; }}</style>""", unsafe_allow_html=True)
@@ -69,7 +68,7 @@ with st.sidebar:
     st.title("자비스 제어 센터")
     menu = st.radio("메뉴 선택", ["자산 관리", "식단 및 건강", "재고 관리"])
     st.divider()
-    st.info("사용자: 정원 (185cm / 목표 체중 감량)")
+    st.info("사용자: 정원 (185cm / 자산 분리 모드)")
 
 # --- [4. 메뉴별 기능 구현] ---
 
@@ -93,41 +92,64 @@ if menu == "자산 관리":
     df_assets = load_sheet_data(GID_MAP["assets"])
     if not df_assets.empty:
         df_assets.columns = ["항목", "금액", "비고"] + list(df_assets.columns[3:])
-        total_val, realtime_assets = 0, []
+        total_val, realtime_list = 0, []
+        
         for _, row in df_assets.iterrows():
             item, base_val, note = str(row["항목"]), to_numeric(row["금액"]), str(row["비고"])
             qty = extract_quantity(note)
             coin_match = re.search(r'(BTC|ETH)', item.upper())
+            
             if coin_match and qty:
                 symbol = coin_match.group(1)
                 price = get_upbit_price(symbol)
                 if price:
                     eval_val = price * qty
-                    realtime_assets.append({"항목": f"{item} (실시간 시세 적용)", "금액": eval_val})
+                    realtime_list.append({"항목": f"{item} (실시간)", "금액": eval_val})
                     total_val += eval_val
                     continue
-            realtime_assets.append({"항목": item, "금액": base_val})
+            
+            realtime_list.append({"항목": item, "금액": base_val})
             total_val += base_val
-        st.markdown(f'<div class="status-card"><small>현재 실시간 순자산</small><br><span style="font-size:2.5em; font-weight:bold;">{total_val:,.0f} 원</span></div>', unsafe_allow_html=True)
-        st.table(pd.DataFrame(realtime_assets).assign(금액=lambda x: x["금액"].apply(format_krw)))
+
+        # 상단 통합 순자산 카드
+        st.markdown(f'<div class="status-card"><small>현재 실시간 합산 순자산</small><br><span style="font-size:2.5em; font-weight:bold;">{total_val:,.0f} 원</span></div>', unsafe_allow_html=True)
+
+        # 자산과 부채 분리 출력 (2열 구조)
+        df_final = pd.DataFrame(realtime_list)
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### 🟢 보유 자산")
+            df_pos = df_final[df_final["금액"] > 0].copy()
+            if not df_pos.empty:
+                st.table(df_pos.assign(금액=lambda x: x["금액"].apply(format_krw)))
+            else:
+                st.write("보유 자산 내역이 없습니다.")
+
+        with col2:
+            st.markdown("#### 🔴 부채 및 카드값")
+            df_neg = df_final[df_final["금액"] < 0].copy()
+            if not df_neg.empty:
+                # 부채는 가독성을 위해 절대값으로 변환하여 표시
+                st.table(df_neg.assign(금액=lambda x: x["금액"].apply(lambda v: format_krw(abs(v)))))
+            else:
+                st.write("현재 기록된 부채가 없습니다.")
 
 elif menu == "식단 및 건강":
+    # (v66.1과 동일한 식단 코드)
     st.subheader(f"오늘의 영양 분석 (목표: {RECOMMENDED['칼로리']} kcal)")
     if 'daily_nutri' not in st.session_state:
         st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}
-    
     curr = st.session_state.daily_nutri
     items = list(RECOMMENDED.items())
     for i in range(0, len(items), 2):
         cols = st.columns(2)
         for j in range(2):
             if i + j < len(items):
-                name, goal = items[i + j]
-                val = curr.get(name, 0.0)
+                name, goal = items[i + j]; val = curr.get(name, 0.0)
                 with cols[j]:
                     st.write(f"**{name}**: {val:.1f} / {goal:.1f}")
                     st.progress(min(1.0, val / goal) if goal > 0 else 0.0)
-    
     with st.sidebar:
         st.markdown("**🍴 식단 입력**")
         with st.form("diet_form"):
@@ -135,17 +157,15 @@ elif menu == "식단 및 건강":
             if st.form_submit_button("영양 데이터 전송"):
                 for k in RECOMMENDED.keys(): st.session_state.daily_nutri[k] += f_in[k]
                 payload = {"time": now.strftime('%Y-%m-%d %H시'), "corpus": "log", "type": "식단", "cat_main": "식단", "item": "일일섭취", "value": f_in["칼로리"], "method": "앱입력", "user": "정원"}
-                send_to_sheet(payload)
-                st.success("식단 기록 완료"); st.rerun()
+                send_to_sheet(payload); st.success("식단 기록 완료"); st.rerun()
 
 elif menu == "재고 관리":
+    # (v66.1과 동일한 재고 코드)
     st.subheader("물품 재고 및 소비기한 관리")
     t1, t2 = st.tabs(["식재료 재고", "상비약 현황"])
     with t1:
         df_inv = load_sheet_data(GID_MAP["inventory"])
-        if not df_inv.empty:
-            st.data_editor(df_inv, num_rows="dynamic", use_container_width=True, key="inv_editor")
+        if not df_inv.empty: st.data_editor(df_inv, num_rows="dynamic", use_container_width=True, key="inv_editor")
     with t2:
         df_pharma = load_sheet_data(GID_MAP["pharmacy"])
-        if not df_pharma.empty:
-            st.data_editor(df_pharma, num_rows="dynamic", use_container_width=True, key="pharma_editor")
+        if not df_pharma.empty: st.data_editor(df_pharma, num_rows="dynamic", use_container_width=True, key="pharma_editor")
