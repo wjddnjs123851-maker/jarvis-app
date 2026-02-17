@@ -5,7 +5,7 @@ import json
 import re
 from datetime import datetime, timedelta
 
-# --- [1. 시스템 설정: 변경된 시트명 반영] ---
+# --- [1. 시스템 설정] ---
 SPREADSHEET_ID = '12cPPhM68K3SopQJtZyWEq8adDuP98bJ4efoYbjFDDOI'
 GID_MAP = {
     "log": "0",          
@@ -13,7 +13,6 @@ GID_MAP = {
     "inventory": "2138778159",
     "pharmacy": "347265850"
 }
-
 API_URL = "https://script.google.com/macros/s/AKfycbxmlmMqenbvhLiLbUmI2GEd1sUMpM-NIUytaZ6jGjSL_hZ_4bk8rnDT1Td3wxbdJVBA/exec"
 COLOR_PRIMARY = "#4dabf7"
 
@@ -33,7 +32,6 @@ def to_numeric(val):
     except: return 0
 
 def extract_quantity(text):
-    """비고란의 '0.001814개' 등에서 수치 추출"""
     if pd.isna(text): return None
     match = re.search(r"([0-9]*\.[0-9]+|[0-9]+)", str(text))
     return float(match.group(1)) if match else None
@@ -60,8 +58,9 @@ def send_to_sheet(payload):
         res = requests.post(API_URL, data=json.dumps(payload), timeout=10)
         return res.status_code == 200
     except: return False
-        # --- [3. UI 설정] ---
-st.set_page_config(page_title="JARVIS Prime v66.0", layout="wide")
+
+# --- [3. UI 및 메인 로직] ---
+st.set_page_config(page_title="JARVIS Prime v66.1", layout="wide")
 now = datetime.utcnow() + timedelta(hours=9)
 
 st.markdown(f"""<style>thead tr th:first-child, tbody th {{ display:none; }} .status-card {{ background-color: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6; border-left: 5px solid {COLOR_PRIMARY}; margin-bottom: 20px; }}</style>""", unsafe_allow_html=True)
@@ -70,13 +69,14 @@ with st.sidebar:
     st.title("자비스 제어 센터")
     menu = st.radio("메뉴 선택", ["자산 관리", "식단 및 건강", "재고 관리"])
     st.divider()
-    st.info("사용자: 정원 (185cm / 결혼식 D-Day 대비 중)") #
+    st.info("사용자: 정원 (185cm / 목표 체중 감량)")
 
-# --- [4. 메뉴별 기능] ---
+# --- [4. 메뉴별 기능 구현] ---
+
 if menu == "자산 관리":
     st.subheader("실시간 통합 자산 및 가계부")
     with st.sidebar:
-        st.markdown("**지출/수입 기록**")
+        st.markdown("**💰 지출/수입 기록**")
         with st.form("asset_form"):
             sel_date = st.date_input("날짜", value=now.date())
             sel_hour = st.slider("시간(시)", 0, 23, now.hour)
@@ -103,13 +103,15 @@ if menu == "자산 관리":
                 price = get_upbit_price(symbol)
                 if price:
                     eval_val = price * qty
-                    realtime_assets.append({"항목": f"{item} (실시간)", "금액": eval_val})
-                    total_val += eval_val; continue
+                    realtime_assets.append({"항목": f"{item} (실시간 시세 적용)", "금액": eval_val})
+                    total_val += eval_val
+                    continue
             realtime_assets.append({"항목": item, "금액": base_val})
             total_val += base_val
-        st.markdown(f'<div class="status-card"><small>실시간 순자산</small><br><span style="font-size:2.5em; font-weight:bold;">{total_val:,.0f} 원</span></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="status-card"><small>현재 실시간 순자산</small><br><span style="font-size:2.5em; font-weight:bold;">{total_val:,.0f} 원</span></div>', unsafe_allow_html=True)
         st.table(pd.DataFrame(realtime_assets).assign(금액=lambda x: x["금액"].apply(format_krw)))
-        elif menu == "식단 및 건강":
+
+elif menu == "식단 및 건강":
     st.subheader(f"오늘의 영양 분석 (목표: {RECOMMENDED['칼로리']} kcal)")
     if 'daily_nutri' not in st.session_state:
         st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}
@@ -130,18 +132,20 @@ if menu == "자산 관리":
         st.markdown("**🍴 식단 입력**")
         with st.form("diet_form"):
             f_in = {k: st.number_input(k, value=0.0) for k in RECOMMENDED.keys()}
-            if st.form_submit_button("기록 추가"):
+            if st.form_submit_button("영양 데이터 전송"):
                 for k in RECOMMENDED.keys(): st.session_state.daily_nutri[k] += f_in[k]
-                payload = {"time": now.strftime('%Y-%m-%d %H시'), "corpus": "log", "type": "식단", "cat_main": "식단", "item": "일일섭취합계", "value": f_in["칼로리"], "method": "앱입력", "user": "정원"}
+                payload = {"time": now.strftime('%Y-%m-%d %H시'), "corpus": "log", "type": "식단", "cat_main": "식단", "item": "일일섭취", "value": f_in["칼로리"], "method": "앱입력", "user": "정원"}
                 send_to_sheet(payload)
-                st.rerun()
+                st.success("식단 기록 완료"); st.rerun()
 
 elif menu == "재고 관리":
-    st.subheader("물품 재고 및 교체 주기 관리")
-    t1, t2 = st.tabs(["식재료", "의약품"])
+    st.subheader("물품 재고 및 소비기한 관리")
+    t1, t2 = st.tabs(["식재료 재고", "상비약 현황"])
     with t1:
         df_inv = load_sheet_data(GID_MAP["inventory"])
-        st.data_editor(df_inv, num_rows="dynamic", use_container_width=True)
+        if not df_inv.empty:
+            st.data_editor(df_inv, num_rows="dynamic", use_container_width=True, key="inv_editor")
     with t2:
         df_pharma = load_sheet_data(GID_MAP["pharmacy"])
-        st.data_editor(df_pharma, num_rows="dynamic", use_container_width=True)
+        if not df_pharma.empty:
+            st.data_editor(df_pharma, num_rows="dynamic", use_container_width=True, key="pharma_editor")
