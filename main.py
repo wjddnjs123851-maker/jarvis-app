@@ -262,42 +262,44 @@ elif menu == "식단 & 건강":
 
     curr = st.session_state.daily_nutri
     
-    # [신규] 영양 섭취 시각화 프로그레스 바
-    st.subheader("📊 오늘의 영양 달성도")
-    v_col1, v_col2 = st.columns(2)
-    with v_col1:
-        cal_pct = min(1.0, curr.get('칼로리', 0) / 2900)
-        st.write(f"🔥 칼로리: {curr.get('칼로리', 0):.0f} / 2900 kcal")
-        st.progress(cal_pct)
-        
-        prot_pct = min(1.0, curr.get('단백질', 0) / 170)
-        st.write(f"🥩 단백질: {curr.get('단백질', 0):.1f} / 170 g")
-        st.progress(prot_pct)
-    with v_col2:
-        fiber_pct = min(1.0, curr.get('식이섬유', 0) / 30)
-        st.write(f"🥗 식이섬유: {curr.get('식이섬유', 0):.1f} / 30 g")
-        st.progress(fiber_pct)
-        
-        water_pct = min(1.0, curr.get('수분(ml)', 0) / 2000)
-        st.write(f"💧 수분: {curr.get('수분(ml)', 0):.0f} / 2000 ml")
-        st.progress(water_pct)
+   # --- 264행 시작 ---
+    curr = st.session_state.daily_nutri
+    
+    # [신규] 모든 영양소 프로그레스 바 자동 생성
+    st.subheader("📊 모든 영양 성분 달성도")
+    
+    # 2열로 나누어 표시
+    cols = st.columns(2)
+    items = list(RECOMMENDED.items())
+    
+    for idx, (name, goal) in enumerate(items):
+        with cols[idx % 2]:
+            current_val = curr.get(name, 0.0)
+            # 달성률 계산 (최대 1.0)
+            pct = min(1.0, current_val / goal) if goal > 0 else 0.0
+            
+            # 영양소 이름과 수치 표시
+            st.write(f"**{name}**: {current_val:.1f} / {goal:.1f} {'kcal' if name == '칼로리' else 'g' if '수분' not in name else 'ml'}")
+            st.progress(pct)
 
     st.divider()
     
-    # 잔여량 표시 (Metric 스타일)
+    # 핵심 영양소 잔여량 Metric (기존 상단 4개 유지)
     hc1, hc2, hc3, hc4 = st.columns(4)
     with hc1: st.metric("칼로리 잔여", f"{max(0, 2900 - curr.get('칼로리', 0)):.0f} kcal")
     with hc2: st.metric("단백질 잔여", f"{max(0, 170 - curr.get('단백질', 0)):.1f} g")
     with hc3: st.metric("식이섬유 잔여", f"{max(0, 30 - curr.get('식이섬유', 0)):.1f} g")
     with hc4: st.metric("수분 잔여", f"{max(0, 2000 - curr.get('수분(ml)', 0)):.0f} ml")
 
-    # 상세 데이터 표
+    # 상세 데이터 표 (전체 리스트 확인용)
     analysis_data = []
     for k in RECOMMENDED.keys():
         c_val = curr.get(k, 0.0)
         rem = max(0, RECOMMENDED[k] - c_val)
         analysis_data.append({"영양소": k, "현재 섭취": f"{c_val:.2f}", "권장량": f"{RECOMMENDED[k]:.2f}", "남은 양": f"{rem:.2f}"})
     st.table(pd.DataFrame(analysis_data))
+
+# --- [모듈 3: 재고 & 교체관리] 및 이후 코드는 동일하게 유지 ---
 
 # --- [모듈 3: 재고 & 교체관리] ---
 elif menu == "재고 & 교체관리":
