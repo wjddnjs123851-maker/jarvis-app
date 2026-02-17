@@ -31,8 +31,13 @@ def to_numeric(val):
     try: return float(s) if '.' in s else int(s)
     except: return 0
 
-# 실시간 코인 시세 획득 (업비트 API)
-@st.cache_data(ttl=10) # 10초마다 시세 갱신
+def extract_quantity(text):
+    """비고란의 '보유량 0.001814개'에서 숫자만 추출"""
+    if pd.isna(text): return None
+    match = re.search(r"([0-9]*\.[0-9]+|[0-9]+)", str(text))
+    return float(match.group(1)) if match else None
+
+@st.cache_data(ttl=15) # 시세는 15초마다 자동 갱신
 def get_upbit_price(ticker):
     try:
         url = f"https://api.upbit.com/v1/ticker?markets=KRW-{ticker}"
@@ -49,82 +54,64 @@ def load_sheet_data(gid):
         return df.dropna(how='all')
     except: return pd.DataFrame()
 
-def send_to_sheet(payload):
-    try:
-        res = requests.post(API_URL, data=json.dumps(payload), timeout=10)
-        return res.status_code == 200
-    except: return False
-
-# --- [3. 초기화 및 UI 설정] ---
-st.set_page_config(page_title="JARVIS Prime v65.7", layout="wide")
+# --- [3. UI 설정 및 메인 로직] ---
+st.set_page_config(page_title="JARVIS Prime v65.8", layout="wide")
 now = datetime.utcnow() + timedelta(hours=9)
-
-# 데이터 로드 생략 (이전 버전과 동일)
-if 'daily_nutri' not in st.session_state:
-    st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}
 
 st.markdown(f"""<style>thead tr th:first-child, tbody th {{ display:none; }} .status-card {{ background-color: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6; border-left: 5px solid {COLOR_PRIMARY}; margin-bottom: 20px; }}</style>""", unsafe_allow_html=True)
 
-# --- [4. 메인 로직] ---
 with st.sidebar:
     st.title("자비스 제어 센터")
     menu = st.radio("메뉴 선택", ["자산 관리", "식단 및 건강", "재고 관리"])
-    st.divider()
-    st.info("사용자: 정원 (실시간 시세 연동 활성화)")
 
-# 1. 자산 관리 모듈 (실시간 연동 강화)
 if menu == "자산 관리":
-    st.subheader("종합 자산 현황 (실시간 연동)")
-    
+    st.subheader("실시간 통합 자산 현황")
     df_assets = load_sheet_data(GID_MAP["Assets"])
+    
     if not df_assets.empty:
-        df_assets = df_assets.iloc[:, [0, 1]].copy()
-        df_assets.columns = ["항목", "금액"]
+        # 시트의 열 이름을 '항목', '금액', '비고'로 강제 지정
+        df_assets.columns = ["항목", "금액", "비고"] + list(df_assets.columns[3:])
         
-        # 실시간 자산 계산 로직
         realtime_assets = []
         total_val = 0
         
         for _, row in df_assets.iterrows():
-            item = row["항목"]
-            val_str = str(row["금액"])
+            item = str(row["항목"])
+            base_val = to_numeric(row["금액"]) # 시트에 적힌 고정 금액
+            note = str(row["비고"])
             
-            # 항목 이름에 코인 심볼이 포함된 경우 (예: BTC, ETH, XRP)
-            # 시트에는 'BTC', 금액란에는 보유 수량(예: 0.5)을 적어두면 작동합니다.
-            coin_match = re.search(r'(BTC|ETH|XRP|SOL|DOGE)', item.upper())
-            if coin_match:
-                symbol = coin_match.group(1)
+            # 비고란에서 숫자(수량) 추출
+            qty = extract_quantity(note)
+            
+            # 코인 실시간 연동 (항목 이름에 BTC나 이더리움이 포함된 경우)
+            coin_match = re.search(r'(비트코인|이더리움|BTC|ETH)', item.upper())
+            if coin_match and qty:
+                symbol = "BTC" if "비트코인" in item or "BTC" in item.upper() else "ETH"
                 price = get_upbit_price(symbol)
-                qty = to_numeric(val_str)
                 if price:
                     current_eval = price * qty
-                    realtime_assets.append({"항목": f"{item} (실시간)", "금액": current_eval, "유형": "코인"})
+                    realtime_assets.append({"항목": f"{item} (실시간)", "금액": current_eval})
                     total_val += current_eval
                     continue
             
-            # 일반 자산/부채
-            num_val = to_numeric(val_str)
-            realtime_assets.append({"항목": item, "금액": num_val, "유형": "일반"})
-            total_val += num_val
+            # 일반 자산 (수량이 없거나 코인이 아닌 경우)
+            realtime_assets.append({"항목": item, "금액": base_val})
+            total_val += base_val
 
-        # 상단 대시보드 출력
-        st.markdown(f'<div class="status-card"><small>실시간 순자산</small><br><span style="font-size:2.5em; font-weight:bold;">{total_val:,.0f} 원</span></div>', unsafe_allow_html=True)
+        # 상단 대시보드
+        st.markdown(f'<div class="status-card"><small>실시간 합산 순자산</small><br><span style="font-size:2.5em; font-weight:bold;">{total_val:,.0f} 원</span></div>', unsafe_allow_html=True)
         
-        # 상세 내역 테이블
+        # 상세 내역 표시
         df_final = pd.DataFrame(realtime_assets)
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown("**보유 자산 및 코인 평가액**")
-            pos_df = df_final[df_final["금액"] > 0].copy()
-            pos_df["금액"] = pos_df["금액"].apply(format_krw)
-            st.table(pos_df[["항목", "금액"]])
+            st.markdown("**보유 자산**")
+            st.table(df_final[df_final["금액"] > 0].assign(금액=lambda x: x["금액"].apply(format_krw)))
         with c2:
             st.markdown("**부채 현황**")
-            neg_df = df_final[df_final["금액"] < 0].copy()
-            neg_df["금액"] = neg_df["금액"].apply(lambda v: format_krw(abs(v)))
-            st.table(neg_df[["항목", "금액"]])
+            st.table(df_final[df_final["금액"] < 0].assign(금액=lambda x: x["금액"].apply(lambda v: format_krw(abs(v)))))
 
-# --- [중략: 식단 및 재고 관리 로직은 이전과 동일] ---
+# (식단 및 재고 관리 코드는 기존과 동일하게 유지됩니다)
 # 2. 식단 및 건강 모듈
 elif menu == "식단 및 건강":
     st.subheader(f"오늘의 영양 분석 (목표: {RECOMMENDED['칼로리']} kcal)")
