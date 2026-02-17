@@ -5,20 +5,27 @@ import json
 import re
 from datetime import datetime, timedelta
 
-# --- [1. 시스템 설정] ---
+# --- [1. 시스템 및 권장 섭취량 설정] ---
 SPREADSHEET_ID = '12cPPhM68K3SopQJtZyWEq8adDuP98bJ4efoYbjFDDOI'
 GID_MAP = {"Log": "0", "Assets": "1068342666", "Health": "123456789"}
 API_URL = "https://script.google.com/macros/s/AKfycbxmlmMqenbvhLiLbUmI2GEd1sUMpM-NIUytaZ6jGjSL_hZ_4bk8rnDT1Td3wxbdJVBA/exec"
 
-COLOR_BG, COLOR_TEXT = "#ffffff", "#000000"
-COLOR_ASSET, COLOR_DEBT = "#4dabf7", "#ff922b"
+COLOR_ASSET = "#4dabf7"
 
+# 정원 님의 권장 섭취량 이미지 데이터 반영 (상한값 기준)
 RECOMMENDED = {
-    "칼로리": 2900, "지방": 70, "콜레스테롤": 300, "나트륨": 2300, 
-    "탄수화물": 350, "식이섬유": 30, "당": 50, "단백질": 170, "수분(ml)": 2000
+    "칼로리": 2200,      # 2,150 ~ 2,200kcal
+    "단백질": 180,       # 160 ~ 180g
+    "탄수화물": 280,     # 250 ~ 280g
+    "지방": 85,          # 70 ~ 85g
+    "식이섬유": 30,      # 25 ~ 30g
+    "나트륨": 2300,      # 2,300mg 미만
+    "당류": 50,          # 50g 미만
+    "콜레스테롤": 300,   # 300mg 미만
+    "수분(ml)": 2000     # 기본 권장량 유지
 }
 
-# --- [2. 핵심 엔진 및 유틸리티] ---
+# --- [2. 핵심 유틸리티] ---
 def format_krw(val): 
     return f"{int(val):,}".rjust(15) + " 원"
 
@@ -47,6 +54,7 @@ def send_to_sheet(d_date, d_hour, d_type, cat_main, content, value, method, corp
     except: return False
 
 def infer_shelf_life(item_name):
+    # 식약처 및 식재료별 기준 보관 일수
     if any(k in item_name for k in ["오이", "버섯", "콩나물", "샐러드", "상추"]): return 5
     elif any(k in item_name for k in ["애호박", "계란", "요거트", "파프리카"]): return 7
     elif any(k in item_name for k in ["삼겹살", "목살", "닭", "소고기", "생선"]): return 5
@@ -56,15 +64,17 @@ def infer_shelf_life(item_name):
     elif any(k in item_name for k in ["라면", "햇반", "캔", "카레", "미역"]): return 365
     return 10
 
-# --- [3. 시스템 초기화] ---
-st.set_page_config(page_title="JARVIS Prime v64.2", layout="wide")
+# --- [3. 시스템 초기화 및 세션 관리] ---
+st.set_page_config(page_title="JARVIS Prime v64.3", layout="wide")
 now = datetime.utcnow() + timedelta(hours=9)
 
+# 세션 상태 초기화
 for key, default in [('food_df_state', pd.DataFrame(columns=["품목", "수량", "기한"])), 
                      ('daily_nutri', {k: 0.0 for k in RECOMMENDED.keys()}), 
                      ('med_df_state', pd.DataFrame(columns=["품목", "수량", "기한"]))]:
     if key not in st.session_state: st.session_state[key] = default
 
+# 자동 소비기한 적용
 if not st.session_state.food_df_state.empty:
     df = st.session_state.food_df_state
     for idx, row in df.iterrows():
@@ -95,12 +105,10 @@ if menu == "투자 & 자산":
     st.header("📈 종합 자산 대시보드")
     with st.sidebar:
         with st.form("asset_form"):
-            sel_date = st.date_input("날짜", value=now.date())
-            sel_hour = st.slider("시간", 0, 23, now.hour)
+            sel_date, sel_hour = st.date_input("날짜", value=now.date()), st.slider("시간", 0, 23, now.hour)
             t_choice = st.selectbox("구분", ["지출", "수입"])
             c_main = st.selectbox("분류", ["식비", "생활용품", "사회적 관계(친구)", "월 구독료", "주거/통신", "교통", "건강", "금융", "경조사", "자산이동"])
-            content = st.text_input("상세 내용")
-            a_input = st.number_input("금액", min_value=0, step=1000)
+            content, a_input = st.text_input("상세 내용"), st.number_input("금액", min_value=0, step=1000)
             method = st.selectbox("수단", ["국민카드(WE:SH)", "현대카드(M경차)", "현대카드(이마트)", "우리카드(주거래)", "하나카드(MG+)", "현금", "계좌이체"])
             if st.form_submit_button("시트 전송"):
                 if a_input > 0 and send_to_sheet(sel_date, sel_hour, t_choice, c_main, content, a_input, method):
@@ -117,7 +125,7 @@ if menu == "투자 & 자산":
         with c2: st.subheader("부채 내역"); st.table(l_df.assign(금액=l_df["val"].apply(lambda x: format_krw(abs(x))))[["항목", "금액"]])
 
 elif menu == "식단 & 건강":
-    st.header("🥗 정밀 영양 분석")
+    st.header(f"🥗 정밀 영양 분석 (목표: {RECOMMENDED['칼로리']} kcal)")
     curr = st.session_state.daily_nutri
     cols = st.columns(2)
     for idx, (name, goal) in enumerate(RECOMMENDED.items()):
@@ -126,10 +134,10 @@ elif menu == "식단 & 건강":
             st.write(f"**{name}**: {val:.1f} / {goal:.1f}"); st.progress(min(1.0, val / goal) if goal > 0 else 0.0)
     st.divider()
     m = st.columns(4)
-    m[0].metric("칼로리 잔여", f"{max(0, 2900 - curr['칼로리']):.0f} kcal")
-    m[1].metric("단백질 잔여", f"{max(0, 170 - curr['단백질']):.1f} g")
-    m[2].metric("식이섬유 잔여", f"{max(0, 30 - curr['식이섬유']):.1f} g")
-    m[3].metric("수분 잔여", f"{max(0, 2000 - curr['수분(ml)']):.0f} ml")
+    m[0].metric("칼로리 잔여", f"{max(0, RECOMMENDED['칼로리'] - curr['칼로리']):.0f} kcal")
+    m[1].metric("단백질 잔여", f"{max(0, RECOMMENDED['단백질'] - curr['단백질']):.1f} g")
+    m[2].metric("탄수화물 잔여", f"{max(0, RECOMMENDED['탄수화물'] - curr['탄수화물']):.1f} g")
+    m[3].metric("식이섬유 잔여", f"{max(0, RECOMMENDED['식이섬유'] - curr['식이섬유']):.1f} g")
     with st.sidebar:
         with st.form("health_form"):
             f_in = {k: st.number_input(k, value=0.0) for k in RECOMMENDED.keys()}
