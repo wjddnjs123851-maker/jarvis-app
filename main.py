@@ -43,7 +43,7 @@ def get_upbit_price(ticker):
         return float(res.json()[0]['trade_price'])
     except: return None
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=10) # 시세 반영 속도를 위해 10초로 단축
 def load_sheet_data(gid):
     ts = datetime.now().timestamp()
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}&t={ts}"
@@ -59,7 +59,7 @@ def send_to_sheet(payload):
     except: return False
 
 # --- [3. UI 설정] ---
-st.set_page_config(page_title="JARVIS Prime v66.2", layout="wide")
+st.set_page_config(page_title="JARVIS Prime v66.7", layout="wide")
 now = datetime.utcnow() + timedelta(hours=9)
 
 st.markdown(f"""<style>thead tr th:first-child, tbody th {{ display:none; }} .status-card {{ background-color: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6; border-left: 5px solid {COLOR_PRIMARY}; margin-bottom: 20px; }}</style>""", unsafe_allow_html=True)
@@ -68,93 +68,74 @@ with st.sidebar:
     st.title("자비스 제어 센터")
     menu = st.radio("메뉴 선택", ["자산 관리", "식단 및 건강", "재고 관리"])
     st.divider()
-    st.info("사용자: 정원 (185cm / 자산 분리 모드)")
 
 # --- [4. 메뉴별 기능 구현] ---
 
 if menu == "자산 관리":
     st.subheader("실시간 통합 자산 및 가계부")
     
-    # 1. 입력 폼 (기존 동일)
+    # [입력 폼: 수입/지출 동적 카테고리 적용]
     with st.sidebar:
         st.markdown("**💰 지출/수입 기록**")
         with st.form("asset_form"):
             sel_date = st.date_input("날짜", value=now.date())
             sel_hour = st.slider("시간(시)", 0, 23, now.hour)
+            
             t_choice = st.selectbox("구분", ["지출", "수입"])
-            c_main = st.selectbox("분류", ["식비", "생활용품", "사회적 관계", "고정지출", "주거/통신", "교통", "건강", "금융", "자산이동"])
+            
+            if t_choice == "지출":
+                cat_list = ["식비", "생활용품", "사회적 관계", "고정지출", "주거/통신", "교통", "건강", "금융", "자산이동", "기타지출"]
+            else:
+                cat_list = ["월급", "부수입", "용돈", "금융수입", "자산이동", "기타수입"]
+            
+            c_main = st.selectbox("분류", cat_list)
             content = st.text_input("상세 내용")
             a_input = st.number_input("금액", min_value=0, step=1000)
-            method = st.selectbox("결제수단", ["국민카드(WE:SH)", "하나카드(MG+)", "우리카드(주거래)", "현대카드(이마트)", "현금", "계좌이체"])
+            method = st.selectbox("결제수단/입금처", ["계좌이체", "현금", "국민카드(WE:SH)", "하나카드(MG+)", "우리카드(주거래)", "현대카드(이마트)"])
+            
             if st.form_submit_button("전송"):
                 payload = {"time": f"{sel_date} {sel_hour:02d}시", "corpus": "log", "type": t_choice, "cat_main": c_main, "item": content, "value": a_input, "method": method, "user": "정원"}
                 if a_input > 0 and send_to_sheet(payload):
-                    st.success("데이터 기록 성공"); st.cache_data.clear(); st.rerun()
+                    st.success(f"{t_choice} 기록 성공!"); st.cache_data.clear(); st.rerun()
 
-    # 2. 데이터 로드 및 강제 보정
+    # [자산 출력: 자산/부채 강제 분리 로직]
     df_assets = load_sheet_data(GID_MAP["assets"])
-    
     if not df_assets.empty:
-        # 데이터가 있는 행부터 읽기 위해 불필요한 헤더 정리
-        # 정원 님 시트 구조: A열(항목), B열(금액), C열(비고)
-        realtime_list = []
-        total_val = 0
+        df_assets = df_assets.iloc[:, :3]
+        df_assets.columns = ["항목", "금액", "비고"]
+        total_val, realtime_list = 0, []
         
-        # DataFrame의 실제 데이터를 순회 (컬럼명 무시하고 인덱스로 접근)
         for i in range(len(df_assets)):
             try:
-                # 첫 번째 열(항목)과 두 번째 열(금액)을 직접 추출
                 item = str(df_assets.iloc[i, 0])
-                raw_val = df_assets.iloc[i, 1]
-                note = str(df_assets.iloc[i, 2]) if len(df_assets.columns) > 2 else ""
+                val = to_numeric(df_assets.iloc[i, 1])
+                note = str(df_assets.iloc[i, 2])
+                if not item or item == "nan" or item == "항목": continue
                 
-                # 금액 숫자로 변환
-                val = to_numeric(raw_val)
-                
-                # '항목'이 비어있으면 건너뜀
-                if not item or item == "nan" or item == "항목":
-                    continue
-                
-                # 코인 실시간 시세 처리
                 qty = extract_quantity(note)
                 coin_match = re.search(r'(BTC|ETH)', item.upper())
                 if coin_match and qty:
-                    symbol = coin_match.group(1)
-                    price = get_upbit_price(symbol)
-                    if price:
-                        val = price * qty
-                        item = f"{item} (실시간)"
+                    price = get_upbit_price(coin_match.group(1))
+                    if price: val = price * qty; item = f"{item} (실시간)"
                 
                 realtime_list.append({"항목": item, "금액": val})
                 total_val += val
-            except Exception as e:
-                continue
+            except: continue
 
-        # 3. 화면 출력
-        st.markdown(f'<div class="status-card"><small>현재 실시간 통합 순자산</small><br><span style="font-size:2.5em; font-weight:bold;">{total_val:,.0f} 원</span></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="status-card"><small>실시간 통합 순자산</small><br><span style="font-size:2.5em; font-weight:bold;">{total_val:,.0f} 원</span></div>', unsafe_allow_html=True)
 
         df_final = pd.DataFrame(realtime_list)
         col1, col2 = st.columns(2)
-        
         with col1:
             st.markdown("#### 🟢 보유 자산")
-            # 1원이라도 있는 자산 출력
             df_pos = df_final[df_final["금액"] > 0].copy()
-            if not df_pos.empty:
-                st.table(df_pos.assign(금액=lambda x: x["금액"].apply(format_krw)))
-            else:
-                st.info("표시할 자산이 없습니다.")
-
+            if not df_pos.empty: st.table(df_pos.assign(금액=lambda x: x["금액"].apply(format_krw)))
         with col2:
             st.markdown("#### 🔴 부채 및 카드값")
-            # 0보다 작은 모든 항목 출력 (카드값 등)
             df_neg = df_final[df_final["금액"] < 0].copy()
-            if not df_neg.empty:
-                st.table(df_neg.assign(금액=lambda x: x["금액"].apply(lambda v: format_krw(abs(v)))))
-            else:
-                st.warning("부채 내역이 없습니다. (시트의 B열 금액이 마이너스인지 확인하세요)")
+            if not df_neg.empty: st.table(df_neg.assign(금액=lambda x: x["금액"].apply(lambda v: format_krw(abs(v)))))
+
 elif menu == "식단 및 건강":
-    # (v66.1과 동일한 식단 코드)
     st.subheader(f"오늘의 영양 분석 (목표: {RECOMMENDED['칼로리']} kcal)")
     if 'daily_nutri' not in st.session_state:
         st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}
@@ -172,18 +153,17 @@ elif menu == "식단 및 건강":
         st.markdown("**🍴 식단 입력**")
         with st.form("diet_form"):
             f_in = {k: st.number_input(k, value=0.0) for k in RECOMMENDED.keys()}
-            if st.form_submit_button("영양 데이터 전송"):
+            if st.form_submit_button("전송"):
                 for k in RECOMMENDED.keys(): st.session_state.daily_nutri[k] += f_in[k]
                 payload = {"time": now.strftime('%Y-%m-%d %H시'), "corpus": "log", "type": "식단", "cat_main": "식단", "item": "일일섭취", "value": f_in["칼로리"], "method": "앱입력", "user": "정원"}
                 send_to_sheet(payload); st.success("식단 기록 완료"); st.rerun()
 
 elif menu == "재고 관리":
-    # (v66.1과 동일한 재고 코드)
-    st.subheader("물품 재고 및 소비기한 관리")
-    t1, t2 = st.tabs(["식재료 재고", "상비약 현황"])
+    st.subheader("물품 재고 관리")
+    t1, t2 = st.tabs(["식재료", "상비약"])
     with t1:
         df_inv = load_sheet_data(GID_MAP["inventory"])
-        if not df_inv.empty: st.data_editor(df_inv, num_rows="dynamic", use_container_width=True, key="inv_editor")
+        if not df_inv.empty: st.data_editor(df_inv, num_rows="dynamic", use_container_width=True, key="inv_ed")
     with t2:
         df_pharma = load_sheet_data(GID_MAP["pharmacy"])
-        if not df_pharma.empty: st.data_editor(df_pharma, num_rows="dynamic", use_container_width=True, key="pharma_editor")
+        if not df_pharma.empty: st.data_editor(df_pharma, num_rows="dynamic", use_container_width=True, key="ph_ed")
