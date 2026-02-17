@@ -12,7 +12,7 @@ API_URL = "https://script.google.com/macros/s/AKfycbxmlmMqenbvhLiLbUmI2GEd1sUMpM
 
 COLOR_ASSET = "#4dabf7"
 
-# 정원 님의 권장 섭취량 이미지 데이터 반영 (상한값 기준)
+# 정원 님 권장 섭취량 이미지 기준 업데이트
 RECOMMENDED = {
     "칼로리": 2200,      # 2,150 ~ 2,200kcal
     "단백질": 180,       # 160 ~ 180g
@@ -22,7 +22,7 @@ RECOMMENDED = {
     "나트륨": 2300,      # 2,300mg 미만
     "당류": 50,          # 50g 미만
     "콜레스테롤": 300,   # 300mg 미만
-    "수분(ml)": 2000     # 기본 권장량 유지
+    "수분(ml)": 2000     
 }
 
 # --- [2. 핵심 유틸리티] ---
@@ -54,7 +54,6 @@ def send_to_sheet(d_date, d_hour, d_type, cat_main, content, value, method, corp
     except: return False
 
 def infer_shelf_life(item_name):
-    # 식약처 및 식재료별 기준 보관 일수
     if any(k in item_name for k in ["오이", "버섯", "콩나물", "샐러드", "상추"]): return 5
     elif any(k in item_name for k in ["애호박", "계란", "요거트", "파프리카"]): return 7
     elif any(k in item_name for k in ["삼겹살", "목살", "닭", "소고기", "생선"]): return 5
@@ -65,16 +64,14 @@ def infer_shelf_life(item_name):
     return 10
 
 # --- [3. 시스템 초기화 및 세션 관리] ---
-st.set_page_config(page_title="JARVIS Prime v64.3", layout="wide")
+st.set_page_config(page_title="JARVIS Prime v64.4", layout="wide")
 now = datetime.utcnow() + timedelta(hours=9)
 
-# 세션 상태 초기화
 for key, default in [('food_df_state', pd.DataFrame(columns=["품목", "수량", "기한"])), 
                      ('daily_nutri', {k: 0.0 for k in RECOMMENDED.keys()}), 
                      ('med_df_state', pd.DataFrame(columns=["품목", "수량", "기한"]))]:
     if key not in st.session_state: st.session_state[key] = default
 
-# 자동 소비기한 적용
 if not st.session_state.food_df_state.empty:
     df = st.session_state.food_df_state
     for idx, row in df.iterrows():
@@ -94,12 +91,11 @@ st.markdown(f"""
 t_col1, t_col2 = st.columns([3, 1])
 with t_col1: st.markdown(f"### {now.strftime('%Y-%m-%d %H:%M:%S')} | JARVIS Prime")
 with t_col2: 
-    if st.button("💾 전체 백업", use_container_width=True): st.info("백업 프로세스 가동")
+    if st.button("💾 전체 백업", use_container_width=True): st.info("백업 가동")
 
 with st.sidebar:
     st.title("JARVIS CONTROL")
     menu = st.radio("SELECT MENU", ["투자 & 자산", "식단 & 건강", "재고 & 교체관리"])
-    st.divider()
 
 if menu == "투자 & 자산":
     st.header("📈 종합 자산 대시보드")
@@ -133,7 +129,7 @@ elif menu == "식단 & 건강":
             val = curr.get(name, 0.0)
             st.write(f"**{name}**: {val:.1f} / {goal:.1f}"); st.progress(min(1.0, val / goal) if goal > 0 else 0.0)
     st.divider()
-    m = st.columns(4)
+    m = st.columns(4) # 잔여량 Metric
     m[0].metric("칼로리 잔여", f"{max(0, RECOMMENDED['칼로리'] - curr['칼로리']):.0f} kcal")
     m[1].metric("단백질 잔여", f"{max(0, RECOMMENDED['단백질'] - curr['단백질']):.1f} g")
     m[2].metric("탄수화물 잔여", f"{max(0, RECOMMENDED['탄수화물'] - curr['탄수화물']):.1f} g")
