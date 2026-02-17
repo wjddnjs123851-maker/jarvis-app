@@ -81,13 +81,32 @@ def infer_shelf_life(item_name):
 st.set_page_config(page_title="JARVIS Prime v64.1", layout="wide")
 
 # 세션 초기화 로직
+# --- [수정된 초기화 로직: 파트 1의 해당 구간에 덮어쓰기] ---
 if 'food_df_state' not in st.session_state:
-    # 정원 님의 이미지 데이터를 기반으로 초기 리스트 구성
-    st.session_state.food_df_state = pd.DataFrame([
-        {"품목": "계란", "수량": "15알", "기한": "2026-02-25"},
-        {"품목": "삼겹살", "수량": "600g", "기한": "2026-02-23"},
-        {"품목": "봉지 라면류", "수량": "9봉", "기한": "2027-02-18"}
-    ])
+    # 정원 님의 이미지 데이터를 기반으로 전체 리스트 자동 구성
+    initial_food = [
+        {"품목": "계란", "수량": "15알", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
+        {"품목": "그릭 요거트", "수량": "400g * 2개", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
+        {"품목": "우유(멸균)", "수량": "1L * 5개", "기한": (now + timedelta(days=14)).strftime('%Y-%m-%d')},
+        {"품목": "삼겹살", "수량": "600g", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
+        {"품목": "목살", "수량": "300g", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
+        {"품목": "닭다리살", "수량": "1팩", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
+        {"품목": "감자", "수량": "3개", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
+        {"품목": "당근", "수량": "3개", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
+        {"품목": "애호박", "수량": "1개", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
+        {"품목": "양파", "수량": "2개(대)", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
+        {"품목": "사골육수", "수량": "2팩", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
+        {"품목": "냉동 생선(삼치)", "수량": "4마리", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
+        {"품목": "냉동 베리 믹스", "수량": "2kg", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
+        {"품목": "우동사리", "수량": "200g * 3봉", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
+        {"품목": "햇반", "수량": "1개", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+        {"품목": "봉지 라면류", "수량": "9봉", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+        {"품목": "토마토 페이스트", "수량": "170g * 10캔", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+        {"품목": "고형 카레(S&B)", "수량": "1박스", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+        {"품목": "라도유(리버스 시어링용)", "수량": "1개", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+        {"품목": "미역", "수량": "50g", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')}
+    ]
+    st.session_state.food_df_state = pd.DataFrame(initial_food)
 # (이어서 2/3 파트에서 UI 구현부 제공 예정)
 # --- [파트 2 시작] ---
 
