@@ -78,12 +78,14 @@ def infer_shelf_life(item_name):
     return 14
 
 # --- [3. UI 스타일 및 세션 설정] ---
+# --- 81행 시작 ---
 st.set_page_config(page_title="JARVIS Prime v64.1", layout="wide")
 
-# 세션 초기화 로직
-# --- [수정된 초기화 로직: 파트 1의 해당 구간에 덮어쓰기] ---
+# [실시간 시간 설정] 아래 초기화 로직에서 사용하기 위해 반드시 이 위치에 정의되어야 합니다.
+now = datetime.utcnow() + timedelta(hours=9)
+
+# 세션 초기화 로직 (이미지 데이터 전체 반영)
 if 'food_df_state' not in st.session_state:
-    # 정원 님의 이미지 데이터를 기반으로 전체 리스트 자동 구성
     initial_food = [
         {"품목": "계란", "수량": "15알", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
         {"품목": "그릭 요거트", "수량": "400g * 2개", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
@@ -91,6 +93,8 @@ if 'food_df_state' not in st.session_state:
         {"품목": "삼겹살", "수량": "600g", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
         {"품목": "목살", "수량": "300g", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
         {"품목": "닭다리살", "수량": "1팩", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
+        {"품목": "슬라이스 치즈", "수량": "다량", "기한": (now + timedelta(days=30)).strftime('%Y-%m-%d')},
+        {"품목": "동치미/각종 김치", "수량": "적정량", "기한": (now + timedelta(days=60)).strftime('%Y-%m-%d')},
         {"품목": "감자", "수량": "3개", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
         {"품목": "당근", "수량": "3개", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
         {"품목": "애호박", "수량": "1개", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
@@ -103,10 +107,11 @@ if 'food_df_state' not in st.session_state:
         {"품목": "봉지 라면류", "수량": "9봉", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
         {"품목": "토마토 페이스트", "수량": "170g * 10캔", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
         {"품목": "고형 카레(S&B)", "수량": "1박스", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-        {"품목": "라도유(리버스 시어링용)", "수량": "1개", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+        {"품목": "라도유", "수량": "1개", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
         {"품목": "미역", "수량": "50g", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')}
     ]
     st.session_state.food_df_state = pd.DataFrame(initial_food)
+# --- 여기까지 109행 (이후 코드는 파트 2 시작점과 연결됨) ---
 # (이어서 2/3 파트에서 UI 구현부 제공 예정)
 # --- [파트 2 시작] ---
 
