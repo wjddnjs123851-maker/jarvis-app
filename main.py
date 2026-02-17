@@ -84,32 +84,62 @@ st.set_page_config(page_title="JARVIS Prime v64.1", layout="wide")
 # [실시간 시간 설정] 아래 초기화 로직에서 사용하기 위해 반드시 이 위치에 정의되어야 합니다.
 now = datetime.utcnow() + timedelta(hours=9)
 
-# 세션 초기화 로직 (이미지 데이터 전체 반영)
+# --- 84행 시작 ---
+# 세션 초기화 로직 (시트 동기화 + 정원 님 이미지 데이터 전체 반영)
 if 'food_df_state' not in st.session_state:
-    initial_food = [
-        {"품목": "계란", "수량": "15알", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
-        {"품목": "그릭 요거트", "수량": "400g * 2개", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
-        {"품목": "우유(멸균)", "수량": "1L * 5개", "기한": (now + timedelta(days=14)).strftime('%Y-%m-%d')},
-        {"품목": "삼겹살", "수량": "600g", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
-        {"품목": "목살", "수량": "300g", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
-        {"품목": "닭다리살", "수량": "1팩", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
-        {"품목": "슬라이스 치즈", "수량": "다량", "기한": (now + timedelta(days=30)).strftime('%Y-%m-%d')},
-        {"품목": "동치미/각종 김치", "수량": "적정량", "기한": (now + timedelta(days=60)).strftime('%Y-%m-%d')},
-        {"품목": "감자", "수량": "3개", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
-        {"품목": "당근", "수량": "3개", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
-        {"품목": "애호박", "수량": "1개", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
-        {"품목": "양파", "수량": "2개(대)", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
-        {"품목": "사골육수", "수량": "2팩", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
-        {"품목": "냉동 생선(삼치)", "수량": "4마리", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
-        {"품목": "냉동 베리 믹스", "수량": "2kg", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
-        {"품목": "우동사리", "수량": "200g * 3봉", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
-        {"품목": "햇반", "수량": "1개", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-        {"품목": "봉지 라면류", "수량": "9봉", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-        {"품목": "토마토 페이스트", "수량": "170g * 10캔", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-        {"품목": "고형 카레(S&B)", "수량": "1박스", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-        {"품목": "라도유", "수량": "1개", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
-        {"품목": "미역", "수량": "50g", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')}
-    ]
+    try:
+        # 1. 시트에서 기존 재고 데이터를 불러오기 시도
+        df_raw = load_sheet_data(GID_MAP["Log"])
+        food_from_sheet = df_raw[df_raw.iloc[:, 2] == "재고"].copy()
+        
+        if not food_from_sheet.empty:
+            parsed_data = []
+            for _, row in food_from_sheet.iterrows():
+                val_parts = str(row.iloc[7]).split('|')
+                qty = val_parts[0]
+                due = val_parts[1].replace("기한:", "") if len(val_parts) > 1 else "-"
+                parsed_data.append({"품목": row.iloc[5], "수량": qty, "기한": due})
+            st.session_state.food_df_state = pd.DataFrame(parsed_data)
+        else:
+            raise Exception("No data in sheet")
+            
+    except Exception:
+        # 2. 시트에 데이터가 없거나 에러 시, 이미지의 31종 전체 데이터로 초기화
+        initial_food = [
+            {"품목": "계란", "수량": "15알", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
+            {"품목": "그릭 요거트", "수량": "400g * 2개", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
+            {"품목": "우유(멸균)", "수량": "1L * 5개", "기한": (now + timedelta(days=14)).strftime('%Y-%m-%d')},
+            {"품목": "삼겹살", "수량": "600g", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
+            {"품목": "목살", "수량": "300g", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
+            {"품목": "닭다리살", "수량": "1팩", "기한": (now + timedelta(days=5)).strftime('%Y-%m-%d')},
+            {"품목": "슬라이스 치즈", "수량": "다량", "기한": (now + timedelta(days=30)).strftime('%Y-%m-%d')},
+            {"품목": "동치미/각종 김치", "수량": "적정량", "기한": (now + timedelta(days=60)).strftime('%Y-%m-%d')},
+            {"품목": "감자", "수량": "3개", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
+            {"품목": "당근", "수량": "3개", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
+            {"품목": "애호박", "수량": "1개", "기한": (now + timedelta(days=7)).strftime('%Y-%m-%d')},
+            {"품목": "양파", "수량": "2개(대)", "기한": (now + timedelta(days=21)).strftime('%Y-%m-%d')},
+            {"품목": "사골육수", "수량": "2팩", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
+            {"품목": "냉동 생선(삼치)", "수량": "4마리", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
+            {"품목": "냉동 베리 믹스", "수량": "2kg", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
+            {"품목": "우동사리", "수량": "200g * 3봉", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
+            {"품목": "햇반", "수량": "1개", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+            {"품목": "쌀/잡곡", "수량": "다량", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+            {"품목": "소면", "수량": "300g", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+            {"품목": "파스타면", "수량": "다량", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+            {"품목": "통조림 햄(뚝심 등)", "수량": "2개", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+            {"품목": "토마토 페이스트", "수량": "170g * 10캔", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+            {"품목": "단백질 쉐이크", "수량": "8팩", "기한": (now + timedelta(days=90)).strftime('%Y-%m-%d')},
+            {"품목": "봉지 라면류", "수량": "9봉", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+            {"품목": "미소된장/마요네즈", "수량": "각 1개", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
+            {"품목": "라도유(볶음용)", "수량": "1개", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+            {"품목": "고형 카레(S&B)", "수량": "1박스", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')},
+            {"품목": "땅콩버터", "수량": "1개", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
+            {"품목": "아사이베리 분말", "수량": "각 1개", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
+            {"품목": "다크 초콜릿", "수량": "100g", "기한": (now + timedelta(days=180)).strftime('%Y-%m-%d')},
+            {"품목": "미역", "수량": "50g", "기한": (now + timedelta(days=365)).strftime('%Y-%m-%d')}
+        ]
+        st.session_state.food_df_state = pd.DataFrame(initial_food)
+# --- 125행 끝 ---
     st.session_state.food_df_state = pd.DataFrame(initial_food)
 # --- 여기까지 109행 (이후 코드는 파트 2 시작점과 연결됨) ---
 # (이어서 2/3 파트에서 UI 구현부 제공 예정)
@@ -212,7 +242,7 @@ if menu == "투자 & 자산":
             st.table(l_df.assign(금액=l_df["val"].apply(lambda x: format_krw(abs(x))))[["항목", "금액"]])
             # --- [파트 3 시작: 189행] ---
 
-# --- [모듈 2: 식단 & 건강] ---
+# --- 245행 시작 ---
 elif menu == "식단 & 건강":
     st.header("🥗 정밀 영양 분석 (목표: 2900 kcal)")
     with st.sidebar:
@@ -224,7 +254,6 @@ elif menu == "식단 & 건강":
                 st.rerun()
         
         if st.button("🏁 오늘의 식단 마감 및 리셋"):
-            # 영양 데이터 시트 전송
             for k, v in st.session_state.daily_nutri.items():
                 if v > 0:
                     send_to_sheet(now.date(), now.hour, "식단", "건강", k, v, "자동기록", corpus="Health")
@@ -232,20 +261,81 @@ elif menu == "식단 & 건강":
             st.success("데이터 시트 전송 및 초기화 완료"); st.rerun()
 
     curr = st.session_state.daily_nutri
-    hc1, hc2, hc3, hc4 = st.columns(4)
-    with hc1: st.markdown(f"""<div class="net-box"><small>칼로리 잔여</small><br><h3>{max(0, 2900 - curr.get('칼로리', 0)):.0f} kcal</h3></div>""", unsafe_allow_html=True)
-    with hc2: st.markdown(f"""<div class="net-box"><small>단백질 잔여</small><br><h3>{max(0, 170 - curr.get('단백질', 0)):.1f} g</h3></div>""", unsafe_allow_html=True)
-    with hc3: st.markdown(f"""<div class="net-box"><small>식이섬유 잔여</small><br><h3>{max(0, 30 - curr.get('식이섬유', 0)):.1f} g</h3></div>""", unsafe_allow_html=True)
-    with hc4: st.markdown(f"""<div class="net-box"><small>수분 잔여</small><br><h3>{max(0, 2000 - curr.get('수분(ml)', 0)):.0f} ml</h3></div>""", unsafe_allow_html=True)
+    
+    # [신규] 영양 섭취 시각화 프로그레스 바
+    st.subheader("📊 오늘의 영양 달성도")
+    v_col1, v_col2 = st.columns(2)
+    with v_col1:
+        cal_pct = min(1.0, curr.get('칼로리', 0) / 2900)
+        st.write(f"🔥 칼로리: {curr.get('칼로리', 0):.0f} / 2900 kcal")
+        st.progress(cal_pct)
+        
+        prot_pct = min(1.0, curr.get('단백질', 0) / 170)
+        st.write(f"🥩 단백질: {curr.get('단백질', 0):.1f} / 170 g")
+        st.progress(prot_pct)
+    with v_col2:
+        fiber_pct = min(1.0, curr.get('식이섬유', 0) / 30)
+        st.write(f"🥗 식이섬유: {curr.get('식이섬유', 0):.1f} / 30 g")
+        st.progress(fiber_pct)
+        
+        water_pct = min(1.0, curr.get('수분(ml)', 0) / 2000)
+        st.write(f"💧 수분: {curr.get('수분(ml)', 0):.0f} / 2000 ml")
+        st.progress(water_pct)
 
+    st.divider()
+    
+    # 잔여량 표시 (Metric 스타일)
+    hc1, hc2, hc3, hc4 = st.columns(4)
+    with hc1: st.metric("칼로리 잔여", f"{max(0, 2900 - curr.get('칼로리', 0)):.0f} kcal")
+    with hc2: st.metric("단백질 잔여", f"{max(0, 170 - curr.get('단백질', 0)):.1f} g")
+    with hc3: st.metric("식이섬유 잔여", f"{max(0, 30 - curr.get('식이섬유', 0)):.1f} g")
+    with hc4: st.metric("수분 잔여", f"{max(0, 2000 - curr.get('수분(ml)', 0)):.0f} ml")
+
+    # 상세 데이터 표
     analysis_data = []
     for k in RECOMMENDED.keys():
         c_val = curr.get(k, 0.0)
         rem = max(0, RECOMMENDED[k] - c_val)
         analysis_data.append({"영양소": k, "현재 섭취": f"{c_val:.2f}", "권장량": f"{RECOMMENDED[k]:.2f}", "남은 양": f"{rem:.2f}"})
-    
     st.table(pd.DataFrame(analysis_data))
 
+# --- [모듈 3: 재고 & 교체관리] ---
+elif menu == "재고 & 교체관리":
+    st.header("🏠 생활 시스템 및 스마트 물품 관리")
+    
+    # 알림 섹션
+    alert_found = False
+    if 'maintenance' in st.session_state:
+        for item in st.session_state.maintenance:
+            try:
+                due = datetime.strptime(str(item["마지막"]), "%Y-%m-%d") + timedelta(days=int(item["주기"]))
+                rem = (due - now).days
+                if rem <= 7:
+                    st.warning(f"🚨 **{item['항목']}** 교체 임박: {rem}일 남음")
+                    alert_found = True
+            except: continue
+    if not alert_found: st.info("✅ 현재 교체 임박 항목이 없습니다.")
+
+    st.divider()
+    
+    # 재고 관리 탭 (시트 백업 기능 포함)
+    tab1, tab2, tab3 = st.tabs(["🍎 식재료 관리", "💊 의약품 관리", "⚙️ 일정/주기 관리"])
+    with tab1:
+        edited_food = st.data_editor(st.session_state.food_df_state, num_rows="dynamic", use_container_width=True)
+        if st.button("💾 식재료 현황 구글 시트 백업"):
+            st.session_state.food_df_state = edited_food
+            success = 0
+            for _, row in edited_food.iterrows():
+                if send_to_sheet(now.date(), now.hour, "재고", "식재료", row['품목'], 0, f"{row['수량']}|기한:{row['기한']}", corpus="Log"):
+                    success += 1
+            st.success(f"✅ {success}개 항목이 구글 시트와 동기화되었습니다.")
+    with tab2:
+        st.session_state.med_df_state = st.data_editor(st.session_state.med_df_state, num_rows="dynamic", use_container_width=True)
+    with tab3:
+        m_df = pd.DataFrame(st.session_state.maintenance)
+        edited_m = st.data_editor(m_df, num_rows="dynamic", use_container_width=True)
+        st.session_state.maintenance = edited_m.to_dict('records')
+# --- 코드 끝 ---
 # --- [모듈 3: 재고 & 교체관리] ---
 elif menu == "재고 & 교체관리":
     st.header("🏠 생활 시스템 및 스마트 물품 관리")
