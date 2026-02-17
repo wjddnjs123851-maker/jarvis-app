@@ -104,18 +104,35 @@ with st.sidebar:
     menu = st.radio("SELECT MENU", ["투자 & 자산", "식단 & 건강", "재고 & 교체관리"])
 
 # --- [모듈별 기능 분기] ---
+# --- 100행 시작 ---
 if menu == "투자 & 자산":
     st.header("📈 종합 자산 대시보드")
-    df_assets = load_sheet_data(GID_MAP["Assets"])
-    if not df_assets.empty:
-        df_assets = df_assets.iloc[:, [0, 1]].copy()
-        df_assets.columns = ["항목", "금액"]; df_assets["val"] = df_assets["금액"].apply(to_numeric)
-        a_df, l_df = df_assets[df_assets["val"] > 0], df_assets[df_assets["val"] < 0]
-        st.markdown(f'<div class="net-box"><small>통합 순자산</small><br><span style="font-size:2.8em; font-weight:bold;">{a_df["val"].sum() + l_df["val"].sum():,.0f} 원</span></div>', unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
-        with c1: st.subheader("자산 내역"); st.table(a_df.assign(금액=a_df["val"].apply(format_krw))[["항목", "금액"]])
-        with c2: st.subheader("부채 내역"); st.table(l_df.assign(금액=l_df["val"].apply(lambda x: format_krw(abs(x))))[["항목", "금액"]])
+    
+    # [복구] 자산 데이터 입력 사이드바 폼
+    with st.sidebar:
+        st.subheader("💰 자산 데이터 입력")
+        with st.form("asset_input_form"):
+            sel_date = st.date_input("날짜", value=now.date())
+            sel_hour = st.slider("시간 (시)", 0, 23, now.hour)
+            t_choice = st.selectbox("구분", ["지출", "수입"])
+            c_main = st.selectbox("대분류", ["식비", "생활용품", "사회적 관계(친구)", "월 구독료", "주거/통신", "교통", "건강", "금융", "경조사", "자산이동"])
+            content = st.text_input("상세 내용 (예: 백오이 구매)")
+            a_input = st.number_input("금액 (원)", min_value=0, step=1000)
+            method = st.selectbox("결제 수단", ["국민카드(WE:SH)", "현대카드(M경차)", "현대카드(이마트)", "우리카드(주거래)", "하나카드(MG+)", "현금", "계좌이체"])
+            
+            if st.form_submit_button("🚀 시트 데이터 전송"):
+                if a_input > 0:
+                    # send_to_sheet 함수를 호출하여 Log 시트에 기록
+                    if send_to_sheet(sel_date, sel_hour, t_choice, c_main, content, a_input, method):
+                        st.success(f"✅ {content} 기록 완료!")
+                        st.cache_data.clear() # 최신 데이터 반영을 위해 캐시 삭제
+                        st.rerun()
+                else:
+                    st.error("금액을 입력해주세요.")
 
+    # 아래는 기존 자산 대시보드 출력 로직 (순자산 카드 등)
+    df_assets = load_sheet_data(GID_MAP["Assets"])
+# --- 125행 끝 ---
 elif menu == "식단 & 건강":
     st.header(f"🥗 정밀 영양 분석 (목표: {RECOMMENDED['칼로리']} kcal)")
     curr = st.session_state.daily_nutri
