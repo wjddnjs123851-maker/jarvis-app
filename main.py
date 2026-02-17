@@ -14,7 +14,7 @@ GID_MAP = {
     "Pharmacy": "347265850"
 }
 API_URL = "https://script.google.com/macros/s/AKfycbxmlmMqenbvhLiLbUmI2GEd1sUMpM-NIUytaZ6jGjSL_hZ_4bk8rnDT1Td3wxbdJVBA/exec"
-COLOR_ASSET = "#4dabf7"
+COLOR_PRIMARY = "#4dabf7"
 
 RECOMMENDED = {
     "칼로리": 2200, "단백질": 180, "탄수화물": 280, "지방": 85,
@@ -22,7 +22,8 @@ RECOMMENDED = {
 }
 
 # --- [2. 핵심 유틸리티] ---
-def format_krw(val): return f"{int(val):,}".rjust(15) + " 원"
+def format_krw(val): 
+    return f"{int(val):,}".rjust(15) + " KRW"
 
 def to_numeric(val):
     if pd.isna(val) or val == "": return 0
@@ -30,37 +31,36 @@ def to_numeric(val):
     try: return float(s) if '.' in s else int(s)
     except: return 0
 
+@st.cache_data(ttl=600)
 def load_sheet_data(gid):
     ts = datetime.now().timestamp()
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}&t={ts}"
     try:
         df = pd.read_csv(url)
         return df.dropna(how='all')
-    except: return pd.DataFrame()
+    except Exception as e:
+        st.error(f"DATA LOAD ERROR: {e}")
+        return pd.DataFrame()
 
-def send_to_sheet(d_date, d_hour, d_type, cat_main, content, value, method, corpus="Log"):
-    payload = {
-        "time": f"{d_date} {d_hour:02d}시", "corpus": corpus, "type": d_type, 
-        "cat_main": cat_main, "cat_sub": "-", "item": content, "value": value, "method": method, "user": "정원"
-    }
+def send_to_sheet(payload):
     try:
         res = requests.post(API_URL, data=json.dumps(payload), timeout=10)
         return res.status_code == 200
     except: return False
 
 # --- [3. 초기화 및 로딩] ---
-st.set_page_config(page_title="JARVIS Prime v65.4", layout="wide")
+st.set_page_config(page_title="JARVIS Prime v65.5", layout="wide")
 now = datetime.utcnow() + timedelta(hours=9)
 
 def sync_from_dedicated_sheet(gid):
-    try:
-        df = load_sheet_data(gid)
-        if not df.empty:
+    df = load_sheet_data(gid)
+    if not df.empty:
+        try:
             new_df = df.iloc[:, [0, 1, 2]].copy()
-            new_df.columns = ["품목", "수량", "기한"]
+            new_df.columns = ["ITEM", "QTY", "EXP_DATE"]
             return new_df
-    except: pass
-    return pd.DataFrame(columns=["품목", "수량", "기한"])
+        except: pass
+    return pd.DataFrame(columns=["ITEM", "QTY", "EXP_DATE"])
 
 if 'food_df_state' not in st.session_state:
     st.session_state.food_df_state = sync_from_dedicated_sheet(GID_MAP["Inventory"])
@@ -69,77 +69,102 @@ if 'med_df_state' not in st.session_state:
 if 'daily_nutri' not in st.session_state:
     st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}
 
-# --- [4. UI 스타일] ---
-st.markdown(f"""<style>thead tr th:first-child, tbody th {{ display:none; }} .net-box {{ background-color: #ffffff; padding: 25px; border-radius: 12px; border: 1px solid #dee2e6; border-left: 5px solid {COLOR_ASSET}; margin-bottom: 20px; }} .stProgress > div > div > div > div {{ background-color: {COLOR_ASSET} !important; }}</style>""", unsafe_allow_html=True)
+# --- [4. UI 스타일링] ---
+st.markdown(f"""
+<style>
+    thead tr th:first-child, tbody th {{ display:none; }}
+    .status-card {{ background-color: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6; border-left: 5px solid {COLOR_PRIMARY}; margin-bottom: 20px; }}
+    .stProgress > div > div > div > div {{ background-color: {COLOR_PRIMARY} !important; }}
+</style>
+""", unsafe_allow_html=True)
 
-# --- [5. 메인 레이아웃 및 사이드바 메뉴] ---
+# --- [5. 상단 헤더] ---
 t_col1, t_col2 = st.columns([3, 1])
-with t_col1: st.markdown(f"### {now.strftime('%Y-%m-%d %H:%M:%S')} | JARVIS Prime")
+with t_col1: 
+    st.markdown(f"### {now.strftime('%Y-%m-%d %H:%M:%S')} | SYSTEM: JARVIS Prime")
 with t_col2: 
-    if st.button("🔄 시트 데이터 동기화", use_container_width=True):
+    if st.button("REFRESH DATA", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
 with st.sidebar:
-    st.title("JARVIS CONTROL")
-    menu = st.radio("SELECT MENU", ["투자 & 자산", "식단 & 건강", "재고 & 교체관리"])
+    st.title("SYSTEM CONTROL")
+    menu = st.radio("SELECT MODULE", ["ASSETS", "HEALTH", "INVENTORY"])
+    st.divider()
 
-# --- [6. 모듈별 기능 로직] ---
+# --- [6. 모듈별 로직] ---
 
-# 1. 투자 & 자산 모듈
-if menu == "투자 & 자산":
-    st.header("📈 종합 자산 대시보드")
+# 1. ASSETS 모듈
+if menu == "ASSETS":
+    st.subheader("ASSET DASHBOARD")
     with st.sidebar:
-        st.subheader("💰 지출/수입 입력")
+        st.markdown("**INPUT TRANSACTION**")
         with st.form("asset_form"):
-            sel_date, sel_hour = st.date_input("날짜", value=now.date()), st.slider("시간", 0, 23, now.hour)
-            t_choice = st.selectbox("구분", ["지출", "수입"])
-            c_main = st.selectbox("분류", ["식비", "생활용품", "사회적 관계(친구)", "월 구독료", "주거/통신", "교통", "건강", "금융", "경조사", "자산이동"])
-            content, a_input = st.text_input("상세 내용"), st.number_input("금액", min_value=0, step=1000)
-            method = st.selectbox("결제수단", ["국민카드(WE:SH)", "현대카드(M경차)", "현대카드(이마트)", "우리카드(주거래)", "하나카드(MG+)", "현금", "계좌이체"])
-            if st.form_submit_button("전송"):
-                if a_input > 0 and send_to_sheet(sel_date, sel_hour, t_choice, c_main, content, a_input, method):
-                    st.success("기록 완료"); st.cache_data.clear(); st.rerun()
+            sel_date = st.date_input("DATE", value=now.date())
+            sel_hour = st.slider("TIME (HOUR)", 0, 23, now.hour)
+            t_choice = st.selectbox("TYPE", ["지출", "수입"])
+            c_main = st.selectbox("CATEGORY", ["식비", "생활용품", "사회적 관계", "고정지출", "주거/통신", "교통", "건강", "금융", "자산이동"])
+            content = st.text_input("DETAILS")
+            a_input = st.number_input("AMOUNT", min_value=0, step=1000)
+            method = st.selectbox("METHOD", ["국민카드", "현대카드", "우리카드", "하나카드", "현금/이체"])
+            if st.form_submit_button("SUBMIT"):
+                payload = {
+                    "time": f"{sel_date} {sel_hour:02d}H", "corpus": "Log", "type": t_choice, 
+                    "cat_main": c_main, "cat_sub": "-", "item": content, "value": a_input, "method": method, "user": "정원"
+                }
+                if a_input > 0 and send_to_sheet(payload):
+                    st.success("RECORDED"); st.cache_data.clear(); st.rerun()
 
     df_assets = load_sheet_data(GID_MAP["Assets"])
     if not df_assets.empty:
         df_assets = df_assets.iloc[:, [0, 1]].copy()
-        df_assets.columns = ["항목", "금액"]; df_assets["val"] = df_assets["금액"].apply(to_numeric)
-        a_df, l_df = df_assets[df_assets["val"] > 0], df_assets[df_assets["val"] < 0]
-        st.markdown(f'<div class="net-box"><small>통합 순자산</small><br><span style="font-size:2.8em; font-weight:bold;">{a_df["val"].sum() + l_df["val"].sum():,.0f} 원</span></div>', unsafe_allow_html=True)
+        df_assets.columns = ["항목", "금액"]
+        df_assets["val"] = df_assets["금액"].apply(to_numeric)
+        net_val = df_assets["val"].sum()
+        
+        st.markdown(f'<div class="status-card"><small>NET WORTH</small><br><span style="font-size:2.5em; font-weight:bold;">{net_val:,.0f} KRW</span></div>', unsafe_allow_html=True)
+        
         c1, c2 = st.columns(2)
-        with c1: st.subheader("자산 내역"); st.table(a_df.assign(금액=a_df["val"].apply(format_krw))[["항목", "금액"]])
-        with c2: st.subheader("부채 내역"); st.table(l_df.assign(금액=l_df["val"].apply(lambda x: format_krw(abs(x))))[["항목", "금액"]])
+        with c1: 
+            st.markdown("**POSITIVE ASSETS**")
+            st.table(df_assets[df_assets["val"] > 0].assign(금액=lambda x: x["val"].apply(format_krw))[["항목", "금액"]])
+        with c2: 
+            st.markdown("**LIABILITIES**")
+            st.table(df_assets[df_assets["val"] < 0].assign(금액=lambda x: x["val"].apply(lambda v: format_krw(abs(v))))[["항목", "금액"]])
 
-# 2. 식단 & 건강 모듈
-elif menu == "식단 & 건강":
-    st.header(f"🥗 정밀 영양 분석 (목표: {RECOMMENDED['칼로리']} kcal)")
+# 2. HEALTH 모듈
+elif menu == "HEALTH":
+    st.subheader(f"NUTRITION ANALYSIS (TARGET: {RECOMMENDED['칼로리']} KCAL)")
     curr = st.session_state.daily_nutri
-    cols = st.columns(2)
-    for idx, (name, goal) in enumerate(RECOMMENDED.items()):
-        with cols[idx % 2]:
-            val = curr.get(name, 0.0)
-            st.write(f"**{name}**: {val:.1f} / {goal:.1f}")
-            st.progress(min(1.0, val / goal) if goal > 0 else 0.0)
+    
+    # 영양소 게이지 출력
+    rows = [list(RECOMMENDED.items())[i:i+2] for i in range(0, len(RECOMMENDED), 2)]
+    for row in rows:
+        cols = st.columns(2)
+        for i, (name, goal) in enumerate(row):
+            with cols[i]:
+                val = curr.get(name, 0.0)
+                st.write(f"**{name}**: {val:.1f} / {goal:.1f}")
+                st.progress(min(1.0, val / goal) if goal > 0 else 0.0)
     
     st.divider()
     with st.sidebar:
-        st.subheader("🍴 식사 기록 입력")
+        st.markdown("**DIET INPUT**")
         with st.form("diet_form"):
-            f_in = {k: st.number_input(k, value=0.0) for k in RECOMMENDED.keys()}
-            if st.form_submit_button("데이터 추가"):
+            f_in = {k: st.number_input(k, value=0.0, format="%.1f") for k in RECOMMENDED.keys()}
+            if st.form_submit_button("ADD DATA"):
                 for k in RECOMMENDED.keys(): st.session_state.daily_nutri[k] += f_in[k]
                 st.rerun()
-        if st.button("🏁 식단 마감"):
+        if st.button("RESET DAILY LOG"):
             st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}; st.rerun()
 
-# 3. 재고 관리 모듈
-elif menu == "재고 & 교체관리":
-    st.header("🏠 스마트 재고 시스템 (전용 시트)")
-    t1, t2 = st.tabs(["🍎 식재료", "💊 의약품"])
+# 3. INVENTORY 모듈
+elif menu == "INVENTORY":
+    st.subheader("STORAGE MANAGEMENT")
+    t1, t2 = st.tabs(["FOOD INVENTORY", "PHARMACY"])
     with t1:
-        st.session_state.food_df_state = st.data_editor(st.session_state.food_df_state, num_rows="dynamic", use_container_width=True, key="food_final")
-        if st.button("💾 식재료 백업"): st.success("임시 저장 완료")
+        st.session_state.food_df_state = st.data_editor(st.session_state.food_df_state, num_rows="dynamic", use_container_width=True, key="food_editor")
+        if st.button("BACKUP FOOD DATA"): st.info("SYNCED WITH SESSION")
     with t2:
-        st.session_state.med_df_state = st.data_editor(st.session_state.med_df_state, num_rows="dynamic", use_container_width=True, key="med_final")
-        if st.button("💾 의약품 백업"): st.success("임시 저장 완료")
+        st.session_state.med_df_state = st.data_editor(st.session_state.med_df_state, num_rows="dynamic", use_container_width=True, key="med_editor")
+        if st.button("BACKUP MED DATA"): st.info("SYNCED WITH SESSION")
