@@ -13,7 +13,7 @@ GID_MAP = {
     "inventory": "2138778159",
     "pharmacy": "347265850"
 }
-API_URL = "https://script.google.com/macros/s/AKfycbxmlmMqenbvhLiLbUmI2GEd1sUMpM-NIUytaZ6jGjSL_hZ_4bk8rnDT1Td3wxbdJVBA/exec"
+API_URL = "https://script.google.com/macros/s/AKfycbzctUtHI2tRtNRoRRfr06xfTp0W9XkxSI1gHj8JPz_E6ftbidN8o8Lz32VbxjAfGLzj/exec"
 COLOR_PRIMARY = "#4dabf7"
 
 RECOMMENDED = {
