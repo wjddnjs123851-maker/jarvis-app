@@ -123,17 +123,30 @@ if menu == "자산/정산 관리":
 elif menu == "스마트 식단(재고연동)":
     st.subheader("🍴 스마트 식단 입력 (사용 시 재고 자동 차감)")
     df_inv = load_sheet_data(GID_MAP["inventory"])
+    
     if not df_inv.empty:
+        # [수정] 컬럼 이름에 의존하지 않고 인덱스(순서)로 접근하여 에러 방지
+        items_list = df_inv.iloc[:, 0].tolist() # A열: 품목 리스트
+        
         col1, col2 = st.columns([1, 1])
         with col1:
             with st.form("smart_diet_form"):
-                food_item = st.selectbox("냉장고 품목 선택", df_inv['품목명'].tolist())
+                food_item = st.selectbox("냉장고 품목 선택", items_list)
                 use_weight = st.number_input("사용량 (g 단위)", min_value=0, step=10)
                 submit_diet = st.form_submit_button("식사 기록 및 재고 차감")
+                
                 if submit_diet and use_weight > 0:
-                    row = df_inv[df_inv['품목명'] == food_item].iloc[0]
-                    cal_per_g = to_numeric(row.get('칼로리', 0)) / 100
-                    prot_per_g = to_numeric(row.get('단백질', 0)) / 100
+                    # 선택한 품목의 행 찾기
+                    row = df_inv[df_inv.iloc[:, 0] == food_item].iloc[0]
+                    
+                    # 수식 에러 방지를 위해 열 번호로 접근 (0:품목, 1:수량, 3:칼로리, 4:단백질 가정)
+                    # 정원님 시트 구조에 따라 숫자를 조정할 수 있습니다.
+                    cal_val = to_numeric(row[3]) if len(row) > 3 else 0
+                    prot_val = to_numeric(row[4]) if len(row) > 4 else 0
+                    
+                    cal_per_g = cal_val / 100
+                    prot_per_g = prot_val / 100
+                    
                     payload = {
                         "action": "diet_with_inventory", "user": user_name, "item": food_item, 
                         "weight": use_weight, "cal": cal_per_g * use_weight, 
