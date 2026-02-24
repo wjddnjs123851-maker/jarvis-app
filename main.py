@@ -8,13 +8,15 @@ from datetime import datetime, timedelta
 # --- [1. 시스템 설정] ---
 SPREADSHEET_ID = '12cPPhM68K3SopQJtZyWEq8adDuP98bJ4efoYbjFDDOI'
 GID_MAP = {
-    "log": "0", "assets": "1068342666", "inventory": "2138778159", "pharmacy": "347265850"
+    "log": "0", 
+    "assets": "1068342666", 
+    "inventory": "2138778159", 
+    "pharmacy": "347265850"
 }
-# 새로 배포하신 앱스 스크립트 URL을 여기에 꼭 업데이트하세요!
+# 새로 배포하신 앱스 스크립트 URL을 반드시 확인해 주세요!
 API_URL = "https://script.google.com/macros/s/AKfycbzctUtHI2tRtNRoRRfr06xfTp0W9XkxSI1gHj8JPz_E6ftbidN8o8Lz32VbxjAfGLzj/exec"
 COLOR_PRIMARY = "#4dabf7"
 
-# 정원 님 영양 목표 (185cm 기준)
 RECOMMENDED = {
     "칼로리": 2200, "단백질": 180, "탄수화물": 280, "지방": 85,
     "식이섬유": 30, "나트륨": 2300, "당류": 50, "콜레스테롤": 300, "수분(ml)": 2000     
@@ -38,7 +40,9 @@ def extract_quantity(text):
 def load_sheet_data(gid):
     ts = datetime.now().timestamp()
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}&t={ts}"
-    try: return pd.read_csv(url).dropna(how='all')
+    try:
+        df = pd.read_csv(url)
+        return df.dropna(how='all')
     except: return pd.DataFrame()
 
 def send_to_sheet(payload):
@@ -51,7 +55,6 @@ def sync_full_sheet(gid_key, df):
     payload = {"action": "overwrite", "gid": GID_MAP[gid_key], "data": [df.columns.tolist()] + df.values.tolist()}
     return send_to_sheet(payload)
 
-# 매월 25일 리셋 주기 계산
 def get_period():
     today = datetime.now()
     if today.day >= 25:
@@ -94,12 +97,10 @@ if menu == "자산/정산 관리":
                 if a_input > 0 and send_to_sheet(payload):
                     st.success("기록 성공!"); st.cache_data.clear(); st.rerun()
 
-    # 장부 리셋 버튼
     if st.button("🔄 매월 25일 장부 리셋 및 이월 실행"):
         if send_to_sheet({"action": "reset_ledger", "user": user_name}):
             st.success("정산 주기가 리셋되었습니다."); st.cache_data.clear(); st.rerun()
 
-    # 자산 현황판 (기존 로직 유지)
     df_assets = load_sheet_data(GID_MAP["assets"])
     if not df_assets.empty:
         df_assets = df_assets.iloc[:, :3]; df_assets.columns = ["항목", "금액", "비고"]
@@ -118,10 +119,9 @@ if menu == "자산/정산 관리":
         with col2:
             st.markdown("#### 🔴 부채 및 카드값")
             st.table(df_final[df_final["금액"] < 0].assign(금액=lambda x: x["금액"].apply(lambda v: format_krw(abs(v)))))
-            elif menu == "스마트 식단(재고연동)":
+
+elif menu == "스마트 식단(재고연동)":
     st.subheader("🍴 스마트 식단 입력 (사용 시 재고 자동 차감)")
-    st.info("💡 냉장고에 등록된 품목을 선택하고 무게(g)를 입력하면 재고와 영양이 동시에 처리됩니다.")
-    
     df_inv = load_sheet_data(GID_MAP["inventory"])
     if not df_inv.empty:
         col1, col2 = st.columns([1, 1])
@@ -130,35 +130,27 @@ if menu == "자산/정산 관리":
                 food_item = st.selectbox("냉장고 품목 선택", df_inv['품목명'].tolist())
                 use_weight = st.number_input("사용량 (g 단위)", min_value=0, step=10)
                 submit_diet = st.form_submit_button("식사 기록 및 재고 차감")
-                
                 if submit_diet and use_weight > 0:
                     row = df_inv[df_inv['품목명'] == food_item].iloc[0]
-                    # g당 영양성분 계산 (시트에 100g당 기준 칼로리/단백질 열이 있다고 가정)
                     cal_per_g = to_numeric(row.get('칼로리', 0)) / 100
                     prot_per_g = to_numeric(row.get('단백질', 0)) / 100
-                    
                     payload = {
-                        "action": "diet_with_inventory",
-                        "user": user_name, "item": food_item, "weight": use_weight,
-                        "cal": cal_per_g * use_weight, "prot": prot_per_g * use_weight,
-                        "gid": GID_MAP["inventory"]
+                        "action": "diet_with_inventory", "user": user_name, "item": food_item, 
+                        "weight": use_weight, "cal": cal_per_g * use_weight, 
+                        "prot": prot_per_g * use_weight, "gid": GID_MAP["inventory"]
                     }
                     if send_to_sheet(payload):
                         st.success(f"✅ {food_item} {use_weight}g 차감 완료!"); st.cache_data.clear(); st.rerun()
-
         with col2:
             st.markdown("#### 오늘의 영양 요약")
-            # 세션 상태에 저장된 영양소 출력 (v67.0 로직)
             if 'daily_nutri' not in st.session_state: st.session_state.daily_nutri = {k: 0.0 for k in RECOMMENDED.keys()}
-            for k, v in st.session_state.daily_nutri.items():
-                if k in ["칼로리", "단백질"]:
-                    st.write(f"**{k}**: {v:.1f} / {RECOMMENDED[k]}")
-                    st.progress(min(1.0, v / RECOMMENDED[k]))
+            for k in ["칼로리", "단백질"]:
+                v = st.session_state.daily_nutri.get(k, 0.0)
+                st.write(f"**{k}**: {v:.1f} / {RECOMMENDED[k]}")
+                st.progress(min(1.0, v / RECOMMENDED[k]))
 
 elif menu == "재고 관리":
     st.subheader("📦 실시간 재고 및 단위 관리 (g/ml)")
-    st.warning("⚠️ 모든 식재료 수량은 '그램(g)' 혹은 '밀리리터(ml)' 숫자로만 관리하세요.")
-    
     t1, t2 = st.tabs(["🍎 식재료 재고", "💊 상비약 현황"])
     with t1:
         df_inv = load_sheet_data(GID_MAP["inventory"])
@@ -166,11 +158,11 @@ elif menu == "재고 관리":
             edited_inv = st.data_editor(df_inv, num_rows="dynamic", use_container_width=True, key="ed_inv_v68")
             if st.button("식재료 데이터 최종 저장"):
                 if sync_full_sheet("inventory", edited_inv):
-                    st.success("재고 데이터가 시트에 동기화되었습니다!"); st.cache_data.clear(); st.rerun()
+                    st.success("재고 동기화 완료!"); st.cache_data.clear(); st.rerun()
     with t2:
         df_pharma = load_sheet_data(GID_MAP["pharmacy"])
         if not df_pharma.empty:
             edited_ph = st.data_editor(df_pharma, num_rows="dynamic", use_container_width=True, key="ed_ph_v68")
             if st.button("상비약 데이터 최종 저장"):
                 if sync_full_sheet("pharmacy", edited_ph):
-                    st.success("상비약 현황이 업데이트되었습니다!"); st.cache_data.clear(); st.rerun()
+                    st.success("상비약 업데이트 완료!"); st.cache_data.clear(); st.rerun()
