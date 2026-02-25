@@ -12,12 +12,9 @@ GID_MAP = {
     "assets": "1068342666", 
     "inventory": "2138778159", 
     "pharmacy": "347265850",
-    "replacement": "1537243641" # 물품교체주기용 GID
+    "replacement": "928688150" # 요청하신 GID로 수정
 }
 API_URL = "https://script.google.com/macros/s/AKfycbxmlmMqenbvhLiLbUmI2GEd1sUMpM-NIUytaZ6jGjSL_hZ_4bk8rnDT1Td3wxbdJVBA/exec"
-
-# 2000kcal 다이어트 기준
-GOALS = {"칼로리": 2000, "단백질": 150, "탄수화물": 150, "지방": 60, "당류": 30, "나트륨": 2000, "콜레스테롤": 300, "식이섬유": 25}
 
 # --- [2. 핵심 방탄 유틸리티] ---
 def to_numeric(val):
@@ -40,10 +37,9 @@ def get_coin_price(ticker):
 @st.cache_data(ttl=300)
 def get_weather(city="Pyeongtaek"):
     try:
-        # wttr.in 오픈 API 활용 (평택 날씨)
         res = requests.get(f"https://wttr.in/{city}?format=j1").json()
         curr = res['current_condition'][0]
-        return f"🌡️ {curr['temp_C']}°C | 💧 {curr['humidity']}% | 🌬️ {curr['windspeedKmph']}km/h"
+        return f"🌡️ {curr['temp_C']}°C | 💧 {curr['humidity']}% | {curr['weatherDesc'][0]['value']}"
     except: return "날씨 정보를 불러올 수 없습니다."
 
 @st.cache_data(ttl=5)
@@ -61,34 +57,35 @@ def sync_sheet(payload):
     except: return False
 
 # --- [3. UI 설정] ---
-st.set_page_config(page_title="JARVIS Prime v80.0", layout="wide")
+st.set_page_config(page_title="JARVIS Prime v81.0", layout="wide")
 now = datetime.utcnow() + timedelta(hours=9)
 
+# CSS: 인덱스 열 숨기기 및 스타일 적용
 st.markdown("""
 <style>
     thead tr th:first-child, tbody th { display:none; }
     .metric-card { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; text-align: center; margin-bottom: 15px; }
-    .stDataEditor div[data-testid="stTable"] { font-size: 0.9em; }
+    .stTable { font-size: 0.9em; }
 </style>
 """, unsafe_allow_html=True)
 
 with st.sidebar:
     st.title("🛡️ 자비스 마스터")
-    weather_info = get_weather("Pyeongtaek")
-    st.info(f"📍 평택시: {weather_info}")
+    st.info(f"📍 평택시 날씨: {get_weather('Pyeongtaek')}")
     menu = st.radio("메뉴", ["💰 자산/가계부", "🥩 식단/재고", "📅 생활 관리", "💊 상비약 관리"])
     st.divider()
 
 # --- [4. 메뉴별 기능 구현] ---
 
 if menu == "💰 자산/가계부":
-    st.header("📊 통합 자산 리포트 및 편집")
+    st.header("📊 통합 자산 리포트 및 가계부")
     
     with st.sidebar:
         st.subheader("💸 가계부 빠른 입력")
         t_type = st.selectbox("구분", ["지출", "수입"])
-        cats = ["식비", "생활/미용", "주거/통신", "관리/공과금", "의료/건강", "교통/차량", "보험/이자", "경조사/선물", "여가/문화", "기타"]
-        methods = ["현금", "계좌이체", "국민카드", "하나카드", "우리카드", "현대카드"]
+        # 카테고리 슬림화 (정원 님 이미지 기준)
+        cats = ["식비", "관리비/공과금", "주거/임대", "통신비", "보험료", "의료/건강", "교통/차량", "생활용품", "여가/문화", "기타"]
+        methods = ["현금", "계좌이체", "국민카드", "우리카드", "하나카드", "현대카드"]
         
         with st.form("log_form"):
             c_main = st.selectbox("카테고리", cats)
@@ -96,7 +93,7 @@ if menu == "💰 자산/가계부":
             amount = st.number_input("금액", min_value=0, step=1000)
             pay_method = st.selectbox("결제수단", methods)
             
-            if st.form_submit_button("기록 및 자산 연동"):
+            if st.form_submit_button("시트로 기록 및 자산 반영"):
                 df_assets = load_data(GID_MAP["assets"])
                 target = "가용현금" if pay_method in ["현금", "계좌이체"] else pay_method
                 
@@ -109,7 +106,7 @@ if menu == "💰 자산/가계부":
                 payload = {"time": now.strftime('%Y-%m-%d %H시'), "corpus": "log", "type": t_type, "cat_main": c_main, "item": item_name, "value": amount, "method": pay_method, "user": "정원"}
                 if sync_sheet(payload):
                     sync_sheet({"action": "overwrite", "gid": GID_MAP["assets"], "data": [df_assets.columns.tolist()] + df_assets.values.tolist()})
-                    st.success("반영 완료"); st.rerun()
+                    st.success("반영 성공!"); st.rerun()
 
     df_a = load_data(GID_MAP["assets"])
     if not df_a.empty:
@@ -128,7 +125,7 @@ if menu == "💰 자산/가계부":
                 p = get_coin_price(coin.group(1))
                 if p: eval_val = qty * p; is_coin = True
             
-            # 카드/대출 무조건 부채 분류
+            # 카드/대출 무조건 부채로 분류 로직
             is_debt = False
             if any(kw in name for kw in ["카드", "대출", "마이너스", "빌린"]) or eval_val < 0:
                 is_debt = True
@@ -140,6 +137,7 @@ if menu == "💰 자산/가계부":
             else:
                 d_rows.append(row); t_d += eval_val
 
+        # 요약 지표
         st.markdown(f"""<div style="display: flex; gap: 10px;">
             <div class="metric-card" style="flex:1;"><b>총 자산</b><br><span style="color:blue; font-size:1.5em;">{t_a:,.0f}원</span></div>
             <div class="metric-card" style="flex:1;"><b>총 부채</b><br><span style="color:red; font-size:1.5em;">{abs(t_d):,.0f}원</span></div>
@@ -148,17 +146,18 @@ if menu == "💰 자산/가계부":
 
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown("#### 🟢 자산 현황")
+            st.markdown("#### 🟢 보유 자산")
             df_pos = pd.DataFrame(a_rows)
             if not df_pos.empty:
-                df_pos.insert(0, '순번', range(1, len(df_pos) + 1))
+                # 에러 방지: 데이터 타입 강제 변환
+                df_pos["수량"] = df_pos["수량"].astype(float)
+                df_pos["평가액"] = df_pos["평가액"].astype(float)
                 st.data_editor(
-                    df_pos[['순번', '항목', '수량', '단위', '평가액']],
+                    df_pos[['항목', '수량', '단위', '평가액']],
                     use_container_width=True,
                     column_config={
-                        "순번": st.column_config.NumberColumn(disabled=True),
                         "수량": st.column_config.NumberColumn(format="%.2f", alignment="right"),
-                        "평가액": st.column_config.NumberColumn(format="%d", alignment="right", disabled=True)
+                        "평가액": st.column_config.NumberColumn(format="%d", alignment="right")
                     },
                     key="view_assets", disabled=True
                 )
@@ -166,80 +165,77 @@ if menu == "💰 자산/가계부":
             st.markdown("#### 🔴 부채 및 카드값")
             df_neg = pd.DataFrame(d_rows)
             if not df_neg.empty:
-                df_neg.insert(0, '순번', range(1, len(df_neg) + 1))
+                df_neg["수량"] = df_neg["수량"].astype(float)
+                df_neg["평가액"] = df_neg["평가액"].astype(float)
                 st.data_editor(
-                    df_neg[['순번', '항목', '수량', '단위', '평가액']],
+                    df_neg[['항목', '수량', '단위', '평가액']],
                     use_container_width=True,
                     column_config={
-                        "순번": st.column_config.NumberColumn(disabled=True),
                         "수량": st.column_config.NumberColumn(format="%d", alignment="right"),
-                        "평가액": st.column_config.NumberColumn(format="%d", alignment="right", disabled=True)
+                        "평가액": st.column_config.NumberColumn(format="%d", alignment="right")
                     },
                     key="view_debts", disabled=True
                 )
 
         st.divider()
-        st.subheader("⚙️ 자산 마스터 편집기")
-        st.caption("여기서 데이터를 직접 수정하고 저장 버튼을 누르면 구글 시트에 즉시 반영됩니다.")
+        st.subheader("⚙️ 자산 통합 편집기")
         ed_main = st.data_editor(df_a, num_rows="dynamic", use_container_width=True)
-        if st.button("💾 마스터 데이터 저장"):
+        if st.button("💾 자산 시트 최종 저장"):
             if sync_sheet({"action": "overwrite", "gid": GID_MAP["assets"], "data": [ed_main.columns.tolist()] + ed_main.values.tolist()}):
-                st.success("시트 동기화 완료!"); st.rerun()
+                st.success("시트 동기화 성공!"); st.rerun()
 
 elif menu == "🥩 식단/재고":
     st.header("🥩 식재료 재고 및 영양 관리")
     df_i = load_data(GID_MAP["inventory"])
-    
-    # 영양 섭취 목표 대시보드 (2000kcal)
-    st.subheader(f"⚖️ 오늘의 영양 목표 (2000kcal 기준)")
-    cols = st.columns(4)
-    nutri_keys = list(GOALS.keys())
-    for idx, key in enumerate(nutri_keys):
-        with cols[idx % 4]:
-            # 임시로 0 표시 (추후 log에서 오늘치 합산 로직 추가 가능)
-            st.write(f"**{key}**")
-            st.progress(0.0)
-            st.caption(f"0 / {GOALS[key]}")
-
-    st.divider()
-    st.subheader("📦 재고 현황 및 직접 수정")
     if not df_i.empty:
-        df_i.insert(0, '순번', range(1, len(df_i) + 1))
+        st.subheader("📦 재고 현황 (직접 수정 가능)")
         ed_i = st.data_editor(df_i, num_rows="dynamic", use_container_width=True)
         if st.button("💾 재고 시트 저장"):
             sync_sheet({"action":"overwrite","gid":GID_MAP["inventory"],"data":[ed_i.columns.tolist()]+ed_i.values.tolist()})
-            st.success("재고 업데이트 완료"); st.rerun()
+            st.success("업데이트 완료"); st.rerun()
 
 elif menu == "📅 생활 관리":
-    st.header("📅 생활 편의 및 교체 주기")
+    st.header("📅 생활 관리 및 날씨")
     t1, t2, t3 = st.tabs(["🔄 물품 교체 주기", "🗓️ 일정 관리", "☁️ 평택 날씨"])
     
     with t1:
-        st.subheader("물품별 교체 주기 확인")
+        st.subheader("물품별 교체 주기")
         df_r = load_data(GID_MAP["replacement"])
         if not df_r.empty:
-            df_r.insert(0, '순번', range(1, len(df_r) + 1))
-            st.data_editor(df_r, use_container_width=True, num_rows="dynamic")
+            ed_r = st.data_editor(df_r, use_container_width=True, num_rows="dynamic")
+            if st.button("💾 교체 주기 저장"):
+                sync_sheet({"action":"overwrite","gid":GID_MAP["replacement"],"data":[ed_r.columns.tolist()]+ed_r.values.tolist()})
+                st.rerun()
         else:
-            st.info("시트에 'replacement' 탭을 생성하고 GID를 확인해 주세요.")
+            st.info("데이터가 없습니다. 시트를 확인해 주세요.")
 
     with t2:
-        st.subheader("🗓️ 구글 캘린더")
-        # Iframe을 통한 기본 캘린더 미리보기
-        st.markdown('<iframe src="https://calendar.google.com/calendar/embed?height=600&wkst=1&bgcolor=%23ffffff&ctz=Asia%2FSeoul&showTitle=0&showNav=1&showPrint=0&showTabs=1&showCalendars=0&showTz=0&src=ko.south_korea%23holiday%40group.v.calendar.google.com" style="border: 0" width="100%" height="500" frameborder="0" scrolling="no"></iframe>', unsafe_allow_html=True)
+        st.subheader("🗓️ 개인 구글 캘린더 연동")
+        if 'cal_url' not in st.session_state:
+            st.session_state.cal_url = ""
+        
+        cal_input = st.text_input("구글 캘린더 '이 사이트에 게시' URL 또는 iCal 주소를 입력하세요", 
+                                  help="구글 캘린더 설정 -> 내 캘린더 설정 -> 캘린더 통합 -> 이 사이트에 게시 URL")
+        if cal_input:
+            st.session_state.cal_url = cal_input
+        
+        if st.session_state.cal_url:
+            st.markdown(f'<iframe src="{st.session_state.cal_url}" style="border: 0" width="100%" height="600" frameborder="0" scrolling="no"></iframe>', unsafe_allow_html=True)
+        else:
+            st.warning("캘린더 URL을 입력하면 여기에 정원님의 일정이 나타납니다.")
 
     with t3:
         st.subheader("📍 평택시 실시간 날씨 상세")
         st.write(get_weather("Pyeongtaek"))
 
 elif menu == "💊 상비약 관리":
-    st.header("💊 상비약 보관함")
+    st.header("💊 상비약 유효기한")
     df_p = load_data(GID_MAP["pharmacy"])
     if not df_p.empty:
+        # 보기용 가공
         df_view = df_p.copy()
-        if len(df_view.columns) > 1: df_view = df_view.drop(df_view.columns[1], axis=1) # 2번째 열 삭제
+        if len(df_view.columns) > 1: df_view = df_view.drop(df_view.columns[1], axis=1)
         df_view.iloc[:, 2] = pd.to_datetime(df_view.iloc[:, 2], errors='coerce').dt.date
-        df_view.insert(0, '순번', range(1, len(df_view) + 1))
         st.dataframe(df_view, use_container_width=True)
         
         st.divider()
@@ -247,4 +243,4 @@ elif menu == "💊 상비약 관리":
         ed_p = st.data_editor(df_p, num_rows="dynamic", use_container_width=True)
         if st.button("💾 상비약 저장"):
             sync_sheet({"action":"overwrite","gid":GID_MAP["pharmacy"],"data":[ed_p.columns.tolist()]+ed_p.values.tolist()})
-            st.success("상비약 업데이트 완료"); st.rerun()
+            st.rerun()
