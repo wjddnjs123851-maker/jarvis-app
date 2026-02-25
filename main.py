@@ -12,13 +12,13 @@ GID_MAP = {
     "assets": "1068342666", 
     "inventory": "2138778159", 
     "pharmacy": "347265850",
-    "replacement": "928688150" # 정원 님 요청 GID 반영
+    "replacement": "928688150" 
 }
 API_URL = "https://script.google.com/macros/s/AKfycbxmlmMqenbvhLiLbUmI2GEd1sUMpM-NIUytaZ6jGjSL_hZ_4bk8rnDT1Td3wxbdJVBA/exec"
 
 # --- [2. 핵심 방탄 유틸리티] ---
 def to_numeric_safe(val):
-    """모든 형식의 데이터를 숫자로 변환 (부채 마이너스 보존)"""
+    """모든 형식의 데이터를 숫자로 변환 (에러 방지용)"""
     if pd.isna(val) or str(val).strip() == "": return 0.0
     s = str(val).replace(',', '').replace(' ', '').strip()
     if s.startswith('(') and s.endswith(')'): s = '-' + s[1:-1]
@@ -42,14 +42,16 @@ def get_weather(city="Pyeongtaek"):
         temp = curr['temp_C']
         desc = curr['weatherDesc'][0]['value']
         return f"🌡️ {temp}°C | {desc}"
-    except: return "날씨 정보 로드 불가"
+    except: return "날씨 로드 불가"
 
 def load_data(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}&t={datetime.now().timestamp()}"
     try:
         df = pd.read_csv(url).dropna(how='all')
-        # 혹시 시트에 '순번' 열이 남아있다면 강제 삭제
-        if '순번' in df.columns: df = df.drop(columns=['순번'])
+        # 정원 님 요청: 모든 메뉴에서 '순번' 열은 무조건 삭제
+        cols_to_drop = [c for c in df.columns if '순번' in str(c) or 'Unnamed' in str(c)]
+        if cols_to_drop:
+            df = df.drop(columns=cols_to_drop)
         return df
     except: return pd.DataFrame()
 
@@ -60,7 +62,7 @@ def sync_sheet(payload):
     except: return False
 
 # --- [3. UI 설정] ---
-st.set_page_config(page_title="JARVIS Prime v87.0", layout="wide")
+st.set_page_config(page_title="JARVIS Prime v90.0", layout="wide")
 now = datetime.utcnow() + timedelta(hours=9)
 
 # CSS: 인덱스 열 숨기기 및 스타일 적용
@@ -80,12 +82,12 @@ with st.sidebar:
 # --- [4. 메뉴별 기능 구현] ---
 
 if menu == "💰 자산 & 가계부":
-    st.header("📊 실시간 통합 자산 관리")
+    st.header("📊 통합 자산 리포트 및 관리")
     
     with st.sidebar:
         st.subheader("💸 가계부 입력")
         t_type = st.selectbox("구분", ["지출", "수입"])
-        cats = ["식비", "관리비/공과금", "주거비", "통신비", "의료/건강", "교통/차량", "생활용품", "기타"]
+        cats = ["식비", "주거/통신", "생활용품", "의료/건강", "교통/차량", "보험/이자", "경조사", "기타"]
         methods = ["현금", "계좌이체", "국민카드", "우리카드", "하나카드", "현대카드"]
         
         with st.form("log_form"):
@@ -111,14 +113,13 @@ if menu == "💰 자산 & 가계부":
 
     df_a = load_data(GID_MAP["assets"])
     if not df_a.empty:
-        # 데이터 정합성 처리: 수량을 강제로 숫자로 변환 (TypeError 방지)
-        df_a.iloc[:, 1] = pd.to_numeric(df_a.iloc[:, 1], errors='coerce').fillna(0.0)
+        # 데이터 에러 방지: 수치 열 강제 숫자화
+        df_a.iloc[:, 1] = pd.to_numeric(df_a.iloc[:, 1], errors='coerce').fillna(0.0).astype(float)
         
         a_rows, d_rows = [], []
         t_a, t_d = 0.0, 0.0
         
         for i, r in df_a.iterrows():
-            # 시트 구조: 항목, 보유수량, 단위, 비고
             name = str(r.iloc[0])
             qty = float(r.iloc[1])
             unit = str(r.iloc[2]) if not pd.isna(r.iloc[2]) else ""
@@ -131,90 +132,88 @@ if menu == "💰 자산 & 가계부":
                 p = get_coin_price(coin.group(1))
                 if p: eval_val = qty * p; is_coin = True
             
-            # 부채 강제 분류 (카드, 대출 등)
+            # 카드/대출 항목 부채로 강제 분류
             is_debt = False
             if any(kw in name for kw in ["카드", "대출", "마이너스", "빌린"]) or eval_val < 0:
                 is_debt = True
                 if eval_val > 0: eval_val = -eval_val
 
-            row = {"항목": name, "보유수량": qty, "단위": unit, "평가액": eval_val, "비고": note, "is_coin": is_coin, "원본ID": i}
+            row = {"항목": name, "수량": qty, "단위": unit, "평가액": eval_val, "비고": note, "is_coin": is_coin}
             if not is_debt:
                 a_rows.append(row); t_a += eval_val
             else:
                 d_rows.append(row); t_d += eval_val
 
-        # 상단 통합 지표
+        # 요약 카드
         st.markdown(f"""<div style="display: flex; gap: 10px;">
             <div class="metric-card" style="flex:1;"><b>총 자산</b><br><span style="color:blue; font-size:1.5em;">{t_a:,.0f}원</span></div>
             <div class="metric-card" style="flex:1;"><b>총 부채</b><br><span style="color:red; font-size:1.5em;">{abs(t_d):,.0f}원</span></div>
             <div class="metric-card" style="flex:1; border-top: 4px solid #4dabf7;"><b>순자산</b><br><span style="font-size:1.8em; font-weight:bold;">{t_a + t_d:,.0f}원</span></div>
         </div>""", unsafe_allow_html=True)
 
-        # 위에 현황을 직접 편집 (TypeError 차단 완료)
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown("#### 🟢 보유 자산 현황")
+            st.markdown("#### 🟢 보유 자산 (직접 편집)")
             df_pos = pd.DataFrame(a_rows)
             if not df_pos.empty:
-                # 평가액 컬럼 추가 및 데이터 타입 고정
-                df_pos["평가액"] = df_pos["평가액"].astype(float)
+                df_pos = df_pos.astype({"수량": float, "평가액": float})
                 ed_pos = st.data_editor(
-                    df_pos[['항목', '보유수량', '단위', '평가액', '비고']],
+                    df_pos[['항목', '수량', '단위', '평가액', '비고']],
                     use_container_width=True,
                     column_config={
-                        "보유수량": st.column_config.NumberColumn(format="%.4f", alignment="right"),
+                        "수량": st.column_config.NumberColumn(format="%.4f", alignment="right"),
                         "평가액": st.column_config.NumberColumn(format="%d", alignment="right", disabled=True)
                     },
                     key="assets_top_editor"
                 )
         with col2:
-            st.markdown("#### 🔴 부채 및 카드값 현황")
+            st.markdown("#### 🔴 부채 및 카드값 (직접 편집)")
             df_neg = pd.DataFrame(d_rows)
             if not df_neg.empty:
-                df_neg["평가액"] = df_neg["평가액"].astype(float)
+                df_neg = df_neg.astype({"수량": float, "평가액": float})
                 ed_neg = st.data_editor(
-                    df_neg[['항목', '보유수량', '단위', '평가액', '비고']],
+                    df_neg[['항목', '수량', '단위', '평가액', '비고']],
                     use_container_width=True,
                     column_config={
-                        "보유수량": st.column_config.NumberColumn(format="%d", alignment="right"),
+                        "수량": st.column_config.NumberColumn(format="%d", alignment="right"),
                         "평가액": st.column_config.NumberColumn(format="%d", alignment="right", disabled=True)
                     },
                     key="debts_top_editor"
                 )
 
         if st.button("💾 위 수정사항을 구글 시트에 최종 저장"):
-            # 편집된 데이터 합치기 로직
-            # (데이터 에디터의 변경사항을 원본 df_a에 반영하여 전송)
-            # 여기서는 편의상 현재 표시된 데이터들을 다시 합쳐서 전송합니다.
-            combined_data = []
+            combined = []
             for d in [ed_pos, ed_neg]:
                 for _, row in d.iterrows():
-                    combined_data.append([row['항목'], row['보유수량'], row['단위'], row['비고']])
-            
-            if sync_sheet({"action": "overwrite", "gid": GID_MAP["assets"], "data": [df_a.columns.tolist()] + combined_data}):
-                st.success("시트 동기화 완료!"); st.rerun()
+                    combined.append([row['항목'], row['수량'], row['단위'], row['비고']])
+            if sync_sheet({"action": "overwrite", "gid": GID_MAP["assets"], "data": [df_a.columns.tolist()] + combined}):
+                st.success("자산 시트 동기화 완료"); st.rerun()
 
 elif menu == "🥩 식단 & 재고":
-    st.header("🥩 식재료 재고 관리 (표에서 바로 편집)")
+    st.header("🥩 식재료 재고 관리 및 편집")
     df_i = load_data(GID_MAP["inventory"])
     if not df_i.empty:
-        # 순번 제거 완료
+        # 수치 열 강제 숫자화
+        for col in df_i.columns:
+            if any(kw in col for kw in ['개수', '중량', '수량']):
+                df_i[col] = pd.to_numeric(df_i[col], errors='coerce').fillna(0.0)
+        
+        st.subheader("📦 현재 재고 목록 (표에서 바로 수정)")
         ed_i = st.data_editor(df_i, num_rows="dynamic", use_container_width=True, key="inventory_editor")
         if st.button("💾 재고 시트 저장"):
             sync_sheet({"action":"overwrite","gid":GID_MAP["inventory"],"data":[ed_i.columns.tolist()]+ed_i.values.tolist()})
             st.success("재고 업데이트 성공"); st.rerun()
 
 elif menu == "📅 생활 & 일정":
-    st.header("📅 생활 관리 및 날씨")
+    st.header("📅 생활 관리 허브")
     t1, t2, t3 = st.tabs(["🔄 물품 교체 주기", "🗓️ 개인 일정", "☁️ 평택시 날씨"])
     
     with t1:
-        st.subheader("물품별 교체 주기 확인")
+        st.subheader("🔄 물품 교체 주기 (GID: 928688150)")
         df_r = load_data(GID_MAP["replacement"])
         if not df_r.empty:
-            # 순번 제거 완료
             ed_r = st.data_editor(df_r, use_container_width=True, num_rows="dynamic", key="replacement_editor")
-            if st.button("💾 교체 정보 저장"):
+            if st.button("💾 교체 정보 업데이트"):
                 sync_sheet({"action":"overwrite","gid":GID_MAP["replacement"],"data":[ed_r.columns.tolist()]+ed_r.values.tolist()})
                 st.rerun()
 
@@ -230,18 +229,12 @@ elif menu == "📅 생활 & 일정":
         st.write(get_weather("Pyeongtaek"))
 
 elif menu == "💊 상비약 관리":
-    st.header("💊 상비약 관리 및 유효기한 (표에서 바로 편집)")
+    st.header("💊 상비약 관리 및 편집")
     df_p = load_data(GID_MAP["pharmacy"])
     if not df_p.empty:
-        # 상단 통합 편집 시스템 (순번 제거 완료)
+        st.subheader("💊 상비약 목록 (표에서 바로 수정 가능)")
+        # 유효기한 포맷팅 등은 에디터가 아닌 로드 시점에 처리하지 않고 원본 유지하여 편집 편의성 제공
         ed_p = st.data_editor(df_p, num_rows="dynamic", use_container_width=True, key="pharmacy_editor")
         if st.button("💾 상비약 데이터 저장"):
             sync_sheet({"action":"overwrite","gid":GID_MAP["pharmacy"],"data":[ed_p.columns.tolist()]+ed_p.values.tolist()})
             st.success("상비약 업데이트 완료"); st.rerun()
-        
-        st.divider()
-        st.subheader("📅 유효기한 요약 뷰")
-        df_v = ed_p.copy()
-        if len(df_v.columns) > 1: df_v = df_v.drop(df_v.columns[1], axis=1)
-        df_v.iloc[:, 2] = pd.to_datetime(df_v.iloc[:, 2], errors='coerce').dt.date
-        st.dataframe(df_v, use_container_width=True)
