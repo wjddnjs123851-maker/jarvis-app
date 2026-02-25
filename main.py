@@ -18,7 +18,7 @@ API_URL = "https://script.google.com/macros/s/AKfycbxmlmMqenbvhLiLbUmI2GEd1sUMpM
 
 # --- [2. 핵심 방탄 유틸리티] ---
 def to_numeric_safe(val):
-    """모든 형식의 데이터를 숫자로 변환 (에러 방지용)"""
+    """모든 데이터 타입을 숫자로 강제 정제 (에러 방지 핵심)"""
     if pd.isna(val) or str(val).strip() == "": return 0.0
     s = str(val).replace(',', '').replace(' ', '').strip()
     if s.startswith('(') and s.endswith(')'): s = '-' + s[1:-1]
@@ -39,17 +39,15 @@ def get_weather(city="Pyeongtaek"):
     try:
         res = requests.get(f"https://wttr.in/{city}?format=j1").json()
         curr = res['current_condition'][0]
-        temp = curr['temp_C']
-        desc = curr['weatherDesc'][0]['value']
-        return f"🌡️ {temp}°C | {desc}"
+        return f"🌡️ {curr['temp_C']}°C | {curr['weatherDesc'][0]['value']}"
     except: return "날씨 로드 불가"
 
 def load_data(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}&t={datetime.now().timestamp()}"
     try:
         df = pd.read_csv(url).dropna(how='all')
-        # 정원 님 요청: 모든 메뉴에서 '순번' 열은 무조건 삭제
-        cols_to_drop = [c for c in df.columns if '순번' in str(c) or 'Unnamed' in str(c)]
+        # 정원 님 명령: 모든 메뉴에서 '순번' 및 'Index' 열은 무조건 삭제
+        cols_to_drop = [c for c in df.columns if '순번' in str(c) or 'Unnamed' in str(c) or 'index' in str(c).lower()]
         if cols_to_drop:
             df = df.drop(columns=cols_to_drop)
         return df
@@ -62,20 +60,21 @@ def sync_sheet(payload):
     except: return False
 
 # --- [3. UI 설정] ---
-st.set_page_config(page_title="JARVIS Prime v90.0", layout="wide")
+st.set_page_config(page_title="JARVIS Prime v91.0", layout="wide")
 now = datetime.utcnow() + timedelta(hours=9)
 
-# CSS: 인덱스 열 숨기기 및 스타일 적용
+# CSS: 인덱스 열 완전 숨기기 (더 이상 순번은 없습니다)
 st.markdown("""
 <style>
     thead tr th:first-child, tbody th { display:none; }
+    [data-testid="stHeader"] { background: rgba(0,0,0,0); }
     .metric-card { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; text-align: center; margin-bottom: 15px; }
 </style>
 """, unsafe_allow_html=True)
 
 with st.sidebar:
     st.title("🛡️ 자비스 마스터")
-    st.info(f"📍 평택시: {get_weather('Pyeongtaek')}")
+    st.info(f"📍 평택시 날씨: {get_weather('Pyeongtaek')}")
     menu = st.radio("메뉴", ["💰 자산 & 가계부", "🥩 식단 & 재고", "📅 생활 & 일정", "💊 상비약 관리"])
     st.divider()
 
@@ -87,7 +86,7 @@ if menu == "💰 자산 & 가계부":
     with st.sidebar:
         st.subheader("💸 가계부 입력")
         t_type = st.selectbox("구분", ["지출", "수입"])
-        cats = ["식비", "주거/통신", "생활용품", "의료/건강", "교통/차량", "보험/이자", "경조사", "기타"]
+        cats = ["식비", "주거/통신", "생활용품", "의료/건강", "교통/차량", "기타"]
         methods = ["현금", "계좌이체", "국민카드", "우리카드", "하나카드", "현대카드"]
         
         with st.form("log_form"):
@@ -109,11 +108,11 @@ if menu == "💰 자산 & 가계부":
                 payload = {"time": now.strftime('%Y-%m-%d %H시'), "corpus": "log", "type": t_type, "cat_main": c_main, "item": item_name, "value": amount, "method": pay_method, "user": "정원"}
                 if sync_sheet(payload):
                     sync_sheet({"action": "overwrite", "gid": GID_MAP["assets"], "data": [df_assets.columns.tolist()] + df_assets.values.tolist()})
-                    st.success("반영 성공!"); st.rerun()
+                    st.success("기록 및 반영 완료"); st.rerun()
 
     df_a = load_data(GID_MAP["assets"])
     if not df_a.empty:
-        # 데이터 에러 방지: 수치 열 강제 숫자화
+        # 데이터 정제 (에러 방지 핵심)
         df_a.iloc[:, 1] = pd.to_numeric(df_a.iloc[:, 1], errors='coerce').fillna(0.0).astype(float)
         
         a_rows, d_rows = [], []
@@ -132,7 +131,7 @@ if menu == "💰 자산 & 가계부":
                 p = get_coin_price(coin.group(1))
                 if p: eval_val = qty * p; is_coin = True
             
-            # 카드/대출 항목 부채로 강제 분류
+            # 부채 분류 (카드, 대출)
             is_debt = False
             if any(kw in name for kw in ["카드", "대출", "마이너스", "빌린"]) or eval_val < 0:
                 is_debt = True
@@ -153,9 +152,10 @@ if menu == "💰 자산 & 가계부":
 
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown("#### 🟢 보유 자산 (직접 편집)")
+            st.markdown("#### 🟢 자산 현황 (직접 편집)")
             df_pos = pd.DataFrame(a_rows)
             if not df_pos.empty:
+                # 에러 방지용 타입 고정
                 df_pos = df_pos.astype({"수량": float, "평가액": float})
                 ed_pos = st.data_editor(
                     df_pos[['항목', '수량', '단위', '평가액', '비고']],
@@ -164,7 +164,7 @@ if menu == "💰 자산 & 가계부":
                         "수량": st.column_config.NumberColumn(format="%.4f", alignment="right"),
                         "평가액": st.column_config.NumberColumn(format="%d", alignment="right", disabled=True)
                     },
-                    key="assets_top_editor"
+                    key="assets_top_editor", hide_index=True
                 )
         with col2:
             st.markdown("#### 🔴 부채 및 카드값 (직접 편집)")
@@ -178,7 +178,7 @@ if menu == "💰 자산 & 가계부":
                         "수량": st.column_config.NumberColumn(format="%d", alignment="right"),
                         "평가액": st.column_config.NumberColumn(format="%d", alignment="right", disabled=True)
                     },
-                    key="debts_top_editor"
+                    key="debts_top_editor", hide_index=True
                 )
 
         if st.button("💾 위 수정사항을 구글 시트에 최종 저장"):
@@ -187,54 +187,53 @@ if menu == "💰 자산 & 가계부":
                 for _, row in d.iterrows():
                     combined.append([row['항목'], row['수량'], row['단위'], row['비고']])
             if sync_sheet({"action": "overwrite", "gid": GID_MAP["assets"], "data": [df_a.columns.tolist()] + combined}):
-                st.success("자산 시트 동기화 완료"); st.rerun()
+                st.success("자산 데이터가 저장되었습니다."); st.rerun()
 
 elif menu == "🥩 식단 & 재고":
-    st.header("🥩 식재료 재고 관리 및 편집")
+    st.header("🥩 식재료 재고 및 편집")
     df_i = load_data(GID_MAP["inventory"])
     if not df_i.empty:
-        # 수치 열 강제 숫자화
+        # 수치 열 정제
         for col in df_i.columns:
-            if any(kw in col for kw in ['개수', '중량', '수량']):
+            if any(kw in col for kw in ['수량', '개수', '중량']):
                 df_i[col] = pd.to_numeric(df_i[col], errors='coerce').fillna(0.0)
         
-        st.subheader("📦 현재 재고 목록 (표에서 바로 수정)")
-        ed_i = st.data_editor(df_i, num_rows="dynamic", use_container_width=True, key="inventory_editor")
+        st.subheader("📦 재고 목록 (직접 편집)")
+        ed_i = st.data_editor(df_i, num_rows="dynamic", use_container_width=True, key="inventory_editor", hide_index=True)
         if st.button("💾 재고 시트 저장"):
             sync_sheet({"action":"overwrite","gid":GID_MAP["inventory"],"data":[ed_i.columns.tolist()]+ed_i.values.tolist()})
-            st.success("재고 업데이트 성공"); st.rerun()
+            st.success("재고가 업데이트되었습니다."); st.rerun()
 
 elif menu == "📅 생활 & 일정":
     st.header("📅 생활 관리 허브")
     t1, t2, t3 = st.tabs(["🔄 물품 교체 주기", "🗓️ 개인 일정", "☁️ 평택시 날씨"])
     
     with t1:
-        st.subheader("🔄 물품 교체 주기 (GID: 928688150)")
+        st.subheader("🔄 물품 교체 관리 (GID: 928688150)")
         df_r = load_data(GID_MAP["replacement"])
         if not df_r.empty:
-            ed_r = st.data_editor(df_r, use_container_width=True, num_rows="dynamic", key="replacement_editor")
-            if st.button("💾 교체 정보 업데이트"):
+            ed_r = st.data_editor(df_r, use_container_width=True, num_rows="dynamic", key="replacement_editor", hide_index=True)
+            if st.button("💾 교체 정보 저장"):
                 sync_sheet({"action":"overwrite","gid":GID_MAP["replacement"],"data":[ed_r.columns.tolist()]+ed_r.values.tolist()})
-                st.rerun()
+                st.success("정보가 저장되었습니다."); st.rerun()
 
     with t2:
-        st.subheader("🗓️ 정원 님 구글 캘린더")
+        st.subheader("🗓️ 개인 구글 캘린더")
         cal_url = st.text_input("개인 구글 캘린더 URL을 입력하세요", value=st.session_state.get('saved_cal_url', ''))
         if cal_url:
             st.session_state['saved_cal_url'] = cal_url
             st.markdown(f'<iframe src="{cal_url}" style="border: 0" width="100%" height="600" frameborder="0" scrolling="no"></iframe>', unsafe_allow_html=True)
 
     with t3:
-        st.subheader("📍 평택시 실시간 기상 정보")
+        st.subheader("📍 평택시 실시간 날씨 정보")
         st.write(get_weather("Pyeongtaek"))
 
 elif menu == "💊 상비약 관리":
     st.header("💊 상비약 관리 및 편집")
     df_p = load_data(GID_MAP["pharmacy"])
     if not df_p.empty:
-        st.subheader("💊 상비약 목록 (표에서 바로 수정 가능)")
-        # 유효기한 포맷팅 등은 에디터가 아닌 로드 시점에 처리하지 않고 원본 유지하여 편집 편의성 제공
-        ed_p = st.data_editor(df_p, num_rows="dynamic", use_container_width=True, key="pharmacy_editor")
+        st.subheader("💊 상비약 목록 (직접 편집)")
+        ed_p = st.data_editor(df_p, num_rows="dynamic", use_container_width=True, key="pharmacy_editor", hide_index=True)
         if st.button("💾 상비약 데이터 저장"):
             sync_sheet({"action":"overwrite","gid":GID_MAP["pharmacy"],"data":[ed_p.columns.tolist()]+ed_p.values.tolist()})
-            st.success("상비약 업데이트 완료"); st.rerun()
+            st.success("상비약 현황이 저장되었습니다."); st.rerun()
